@@ -1,0 +1,12 @@
+[package]
+name = "metis-island"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metis island registry and staging handles"
+
+[dependencies]
+metis-types = { workspace = true }
+metis-graph = { workspace = true }
+thiserror = { workspace = true }

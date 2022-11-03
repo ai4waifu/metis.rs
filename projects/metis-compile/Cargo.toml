@@ -1,0 +1,10 @@
+[package]
+name = "metis-compile"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Parse and lower .metis sources (oak-metis AST)"
+
+[dependencies]
+oak-metis = { workspace = true }

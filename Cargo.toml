@@ -1,12 +1,31 @@
 [workspace]
+resolver = "2"
 members = ["projects/*"]
-default-members = [
-    "projects/sub_projects",
-]
-exclude = [
-    "projects/.DS_Store",
-]
+default-members = ["projects/metis-example"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Aster <192607617@qq.com>"]
+license = "MPL-2.0"
+
+[workspace.dependencies]
+metis-types = { path = "projects/metis-types" }
+metis-graph = { path = "projects/metis-graph" }
+metis-island = { path = "projects/metis-island" }
+metis-verify = { path = "projects/metis-verify" }
+metis-compile = { path = "projects/metis-compile" }
+metis-jit = { path = "projects/metis-jit" }
+metis = { path = "projects/metis" }
+athena-types = { path = "../athena.rs/projects/athena-types" }
+athena-gc = { path = "../athena.rs/projects/athena-gc" }
+oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
 
 [profile.release]
+opt-level = 3
+codegen-units = 1
 lto = true
+strip = "symbols"
 panic = "abort"

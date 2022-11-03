@@ -1,0 +1,11 @@
+[package]
+name = "metis-verify"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metis path/proof search and verification"
+
+[dependencies]
+metis-types = { workspace = true }
+metis-graph = { workspace = true }
