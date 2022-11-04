@@ -17,9 +17,9 @@ metis-verify = { path = "projects/metis-verify" }
 metis-compile = { path = "projects/metis-compile" }
 metis-jit = { path = "projects/metis-jit" }
 metis = { path = "projects/metis" }
-athena-types = { path = "../athena.rs/projects/athena-types" }
-athena-gc = { path = "../athena.rs/projects/athena-gc" }
-oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
+athena-types = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
+athena-gc = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
+oak-metis = { git = "https://github.com/ygg-lang/oaks.git", branch = "dev", default-features = false }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

@@ -31,11 +31,15 @@ Theorems and proofs are authored in `.metis` files (see `projects/metis-compile/
 
 ## Develop
 
-Local path deps expect sibling checkouts:
+External crates come from git (`athena.rs` / `oaks` on `dev`). Optional local overrides:
 
-```text
-../athena.rs
-../oaks
+```toml
+[patch."https://github.com/ai4waifu/athena.rs.git"]
+athena-types = { path = "../athena.rs/projects/athena-types" }
+athena-gc = { path = "../athena.rs/projects/athena-gc" }
+
+[patch."https://github.com/ygg-lang/oaks.git"]
+oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
 ```
 
 ```shell
