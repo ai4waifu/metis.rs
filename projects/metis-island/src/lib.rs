@@ -1,15 +1,29 @@
 //! Island registry: accepted graphs plus disposable staging arenas.
+//!
+//! Accepted islands are frozen for mutation. Staging can be discarded or
+//! promoted into the accepted table. Each island carries a monotonic
+//! [`WorldId::version`] for Core-relative world context.
 
 use std::{collections::HashMap, num::NonZeroU32};
 
+use metis_graph::admission::WorldId;
 use metis_graph::Graph;
 use metis_types::{IslandId, MetisError};
 
-/// Named island entry. Accepted islands are treated as read-mostly for now.
+/// Named island entry.
 pub struct Island {
     pub name: String,
     pub graph: Graph,
     pub accepted: bool,
+    /// Monotonic world version (bumped when staging is accepted).
+    pub version: u64,
+}
+
+impl Island {
+    /// Relative world handle for Core admission context.
+    pub fn world_id(&self, id: IslandId) -> WorldId {
+        WorldId { island: id, version: self.version }
+    }
 }
 
 /// Store of islands plus one optional staging workspace.
@@ -40,7 +54,10 @@ impl IslandStore {
         }
         let id = self.alloc_id()?;
         self.by_name.insert(name.clone(), id);
-        self.islands.insert(id, Island { name, graph: Graph::new(), accepted: true });
+        self.islands.insert(
+            id,
+            Island { name, graph: Graph::new(), accepted: true, version: 1 },
+        );
         Ok(id)
     }
 
@@ -51,7 +68,6 @@ impl IslandStore {
     pub fn get_mut(&mut self, id: IslandId) -> Result<&mut Island, MetisError> {
         let island = self.islands.get_mut(&id).ok_or(MetisError::IslandNotFound)?;
         if island.accepted {
-            // Foundation: accepted islands stay structurally frozen.
             return Err(MetisError::InvalidHandle);
         }
         Ok(island)
@@ -64,7 +80,10 @@ impl IslandStore {
     /// Open a disposable staging island. Replaces any previous staging.
     pub fn open_staging(&mut self, name: impl Into<String>) -> Result<IslandId, MetisError> {
         let id = self.alloc_id()?;
-        self.staging = Some((id, Island { name: name.into(), graph: Graph::new(), accepted: false }));
+        self.staging = Some((
+            id,
+            Island { name: name.into(), graph: Graph::new(), accepted: false, version: 0 },
+        ));
         Ok(id)
     }
 
@@ -79,6 +98,24 @@ impl IslandStore {
     /// Discard the staging arena entirely.
     pub fn discard_staging(&mut self) {
         self.staging = None;
+    }
+
+    /// Promote current staging into the accepted table under `as_name`.
+    ///
+    /// Keeps the staging [`IslandId`]. Bumps [`Island::version`]. Does **not** call
+    /// [`Graph::seal`] — Metis judgment / hash-cons state must remain for verify.
+    pub fn accept_staging(&mut self, as_name: impl Into<String>) -> Result<IslandId, MetisError> {
+        let name = as_name.into();
+        if self.by_name.contains_key(&name) {
+            return Err(MetisError::InvalidHandle);
+        }
+        let (id, mut island) = self.staging.take().ok_or(MetisError::IslandNotFound)?;
+        island.name = name.clone();
+        island.accepted = true;
+        island.version = island.version.saturating_add(1);
+        self.by_name.insert(name, id);
+        self.islands.insert(id, island);
+        Ok(id)
     }
 }
 
@@ -103,5 +140,39 @@ mod tests {
         }
         store.discard_staging();
         assert!(store.staging_mut().is_err());
+    }
+
+    #[test]
+    fn accept_staging_freezes_and_versions() {
+        let mut store = IslandStore::new();
+        let sid = store.open_staging("draft").unwrap();
+        {
+            let st = store.staging_mut().unwrap();
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            st.graph.assert(a, EdgeKind::Equal, b).unwrap();
+            assert_eq!(st.version, 0);
+        }
+        let id = store.accept_staging("Group").unwrap();
+        assert_eq!(id, sid);
+        assert!(store.staging_id().is_none());
+        let island = store.get(id).unwrap();
+        assert!(island.accepted);
+        assert_eq!(island.version, 1);
+        assert_eq!(island.name, "Group");
+        assert_eq!(island.graph.node_count(), 2);
+        let w = island.world_id(id);
+        assert_eq!(w.island, id);
+        assert_eq!(w.version, 1);
+        assert!(store.get_mut(id).is_err());
+    }
+
+    #[test]
+    fn accept_staging_rejects_name_clash() {
+        let mut store = IslandStore::new();
+        store.register_accepted("Group").unwrap();
+        store.open_staging("draft").unwrap();
+        assert_eq!(store.accept_staging("Group").unwrap_err(), MetisError::InvalidHandle);
+        assert!(store.staging_id().is_some());
     }
 }
