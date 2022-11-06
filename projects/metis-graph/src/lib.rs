@@ -3,6 +3,7 @@
 //! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] (not CAS M-Graph).
 //! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
 //! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
+//! - Core contract stubs: [`admission`].
 
 use std::{
     cell::RefCell,
@@ -16,6 +17,8 @@ use athena_graph::{
     SelfLoopDegree,
 };
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
+
+pub mod admission;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum EdgeKindKey {
