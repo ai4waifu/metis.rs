@@ -32,7 +32,7 @@ pub enum ArtifactKind {
 /// Compile a reachability query between two node handles into a unit.
 pub fn compile_reach(from: NodeId, to: NodeId) -> Result<Artifact, MetisError> {
     let mut h: u64 = 0xcbf29ce484222325;
-    for x in [from.get() as u64, to.get() as u64] {
+    for x in [from.0, to.0] {
         h ^= x;
         h = h.wrapping_mul(0x100000001b3);
     }
@@ -42,12 +42,11 @@ pub fn compile_reach(from: NodeId, to: NodeId) -> Result<Artifact, MetisError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::num::NonZeroU32;
 
     #[test]
     fn reach_unit_is_deterministic() {
-        let a = NodeId::from_raw(NonZeroU32::new(1).unwrap());
-        let b = NodeId::from_raw(NonZeroU32::new(2).unwrap());
+        let a = NodeId(1);
+        let b = NodeId(2);
         let x = compile_reach(a, b).unwrap();
         let y = compile_reach(a, b).unwrap();
         assert_eq!(x, y);

@@ -1,19 +1,20 @@
-//! Relation graph with structural hash-consing and judgment edges.
+//! Metis relation semantics on [`athena_graph`].
 //!
-//! - **Structural** outs define extensional identity (`intern`).
-//! - **Judgment** edges assert facts without rewriting node identity (`assert`).
-//! - **Labels** are content-addressed atoms for named proposition subjects.
-//!
-//! Object lifetime protocol is [`athena_gc`] — Metis does not ship a parallel GC crate.
+//! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] (not CAS M-Graph).
+//! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
+//! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
 
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
-    num::NonZeroU32,
     rc::Rc,
 };
 
 use athena_gc::{GcHeap, HeapBudget};
+use athena_graph::{
+    GraphBuilder, GraphDirection, GraphSemantics, ImmutableGraph, MultiplicityPolicy, PublishedImmutableGraph,
+    SelfLoopDegree,
+};
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -49,26 +50,13 @@ impl From<EdgeKindKey> for EdgeKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct OutKey {
     kind: EdgeKindKey,
-    to: u32,
+    to: u64,
 }
 
-#[derive(Clone, Debug)]
-struct NodeRec {
-    /// Structural outs (hash-cons identity). Empty for pure labels.
-    structural: Vec<(EdgeId, EdgeKindKey, NodeId)>,
-    /// Judgment outs (facts). Do not affect hash-cons identity.
-    judgments: Vec<(EdgeId, EdgeKindKey, NodeId)>,
-    /// Optional label payload for named atoms.
-    label: Option<Vec<u8>>,
-}
-
-#[derive(Clone, Debug)]
-struct EdgeRec {
-    from: NodeId,
-    to: NodeId,
+#[derive(Clone, Copy, Debug)]
+struct EdgeMeta {
     kind: EdgeKindKey,
-    /// True when the edge is a judgment (asserted fact).
-    judgment: bool,
+    structural: bool,
 }
 
 /// Directed step along a judgment edge, possibly reversed (for symmetric kinds).
@@ -78,12 +66,22 @@ pub struct Step {
     pub forward: bool,
 }
 
-/// Mutable working graph (staging or accepted island body).
+fn metis_semantics() -> GraphSemantics {
+    GraphSemantics {
+        direction: GraphDirection::Directed,
+        multiplicity: MultiplicityPolicy::Multi,
+        allows_self_loops: true,
+        self_loop_degree: SelfLoopDegree::One,
+    }
+}
+
+/// Mutable working graph (staging or accepted island body before seal).
 pub struct Graph {
-    nodes: Vec<Option<NodeRec>>,
-    edges: Vec<Option<EdgeRec>>,
+    builder: GraphBuilder<(), ()>,
     cons: HashMap<Vec<OutKey>, NodeId>,
     labels: HashMap<Vec<u8>, NodeId>,
+    label_of: HashMap<NodeId, Vec<u8>>,
+    edge_meta: HashMap<EdgeId, EdgeMeta>,
     heap: Rc<RefCell<GcHeap>>,
 }
 
@@ -99,60 +97,58 @@ impl Graph {
     }
 
     pub fn with_heap(heap: Rc<RefCell<GcHeap>>) -> Self {
-        Self { nodes: Vec::new(), edges: Vec::new(), cons: HashMap::new(), labels: HashMap::new(), heap }
+        Self {
+            builder: GraphBuilder::new(metis_semantics()),
+            cons: HashMap::new(),
+            labels: HashMap::new(),
+            label_of: HashMap::new(),
+            edge_meta: HashMap::new(),
+            heap,
+        }
     }
 
     pub fn heap(&self) -> &Rc<RefCell<GcHeap>> {
         &self.heap
     }
 
-    /// Label bytes if this node was created with [`Self::intern_label`].
+    /// Underlying athena builder (ordinary discrete graph).
+    pub fn base(&self) -> &GraphBuilder<(), ()> {
+        &self.builder
+    }
+
+    /// Seal into an immutable ordinary graph (drops Metis cons tables).
+    pub fn seal(self) -> ImmutableGraph<(), ()> {
+        self.builder.finish()
+    }
+
+    /// Seal and publish snapshot roots on the shared [`GcHeap`].
+    pub fn seal_on_heap(self) -> Result<PublishedImmutableGraph<(), ()>, MetisError> {
+        let mut heap = self.heap.borrow_mut();
+        self.builder.finish_on_heap(&mut heap).map_err(|_| MetisError::GraphRejected)
+    }
+
     pub fn label_of(&self, id: NodeId) -> Result<Option<&[u8]>, MetisError> {
-        Ok(self.node_rec(id)?.label.as_deref())
-    }
-
-    fn alloc_node_slot(&mut self) -> Result<NodeId, MetisError> {
-        let idx = self.nodes.len() + 1;
-        let raw = NonZeroU32::new(idx.try_into().map_err(|_| MetisError::Capacity)?).ok_or(MetisError::Capacity)?;
-        self.nodes.push(None);
-        Ok(NodeId::from_raw(raw))
-    }
-
-    fn alloc_edge_slot(&mut self) -> Result<EdgeId, MetisError> {
-        let idx = self.edges.len() + 1;
-        let raw = NonZeroU32::new(idx.try_into().map_err(|_| MetisError::Capacity)?).ok_or(MetisError::Capacity)?;
-        self.edges.push(None);
-        Ok(EdgeId::from_raw(raw))
-    }
-
-    fn node_index(id: NodeId) -> Result<usize, MetisError> {
-        usize::try_from(id.get().checked_sub(1).ok_or(MetisError::InvalidHandle)?).map_err(|_| MetisError::InvalidHandle)
-    }
-
-    fn edge_index(id: EdgeId) -> Result<usize, MetisError> {
-        usize::try_from(id.get().checked_sub(1).ok_or(MetisError::InvalidHandle)?).map_err(|_| MetisError::InvalidHandle)
+        self.ensure_known(id)?;
+        Ok(self.label_of.get(&id).map(|v| v.as_slice()))
     }
 
     fn fingerprint(outs: &[(EdgeKind, NodeId)]) -> Vec<OutKey> {
-        let mut keys: Vec<OutKey> =
-            outs.iter().map(|(kind, to)| OutKey { kind: EdgeKindKey::from(*kind), to: to.get() }).collect();
+        let mut keys: Vec<OutKey> = outs.iter().map(|(kind, to)| OutKey { kind: EdgeKindKey::from(*kind), to: to.0 }).collect();
         keys.sort();
         keys
     }
 
     fn ensure_known(&self, id: NodeId) -> Result<(), MetisError> {
-        let _ = self.node_rec(id)?;
+        if id.0 >= self.builder.graph().node_count() {
+            return Err(MetisError::NodeNotFound);
+        }
         Ok(())
     }
 
-    fn node_rec(&self, id: NodeId) -> Result<&NodeRec, MetisError> {
-        let slot = Self::node_index(id)?;
-        self.nodes.get(slot).and_then(|n| n.as_ref()).ok_or(MetisError::NodeNotFound)
-    }
-
-    fn node_rec_mut(&mut self, id: NodeId) -> Result<&mut NodeRec, MetisError> {
-        let slot = Self::node_index(id)?;
-        self.nodes.get_mut(slot).and_then(|n| n.as_mut()).ok_or(MetisError::NodeNotFound)
+    fn add_base_edge(&mut self, from: NodeId, to: NodeId, meta: EdgeMeta) -> Result<EdgeId, MetisError> {
+        let eid = self.builder.add_edge(from, to, ()).ok_or(MetisError::GraphRejected)?;
+        self.edge_meta.insert(eid, meta);
+        Ok(eid)
     }
 
     /// Intern a named atom. Same bytes → same [`NodeId`].
@@ -161,10 +157,9 @@ impl Graph {
         if let Some(id) = self.labels.get(&key).copied() {
             return Ok(id);
         }
-        let id = self.alloc_node_slot()?;
-        let slot = Self::node_index(id)?;
-        self.nodes[slot] = Some(NodeRec { structural: Vec::new(), judgments: Vec::new(), label: Some(key.clone()) });
-        self.labels.insert(key, id);
+        let id = self.builder.add_node(());
+        self.labels.insert(key.clone(), id);
+        self.label_of.insert(id, key);
         Ok(id)
     }
 
@@ -178,18 +173,14 @@ impl Graph {
             return Ok(id);
         }
 
-        let id = self.alloc_node_slot()?;
-        let mut recorded = Vec::with_capacity(outs.len());
+        let id = self.builder.add_node(());
         for (kind, to) in outs {
-            let kind_key = EdgeKindKey::from(*kind);
-            let eid = self.alloc_edge_slot()?;
-            let eslot = Self::edge_index(eid)?;
-            self.edges[eslot] = Some(EdgeRec { from: id, to: *to, kind: kind_key, judgment: false });
-            recorded.push((eid, kind_key, *to));
+            self.add_base_edge(
+                id,
+                *to,
+                EdgeMeta { kind: EdgeKindKey::from(*kind), structural: true },
+            )?;
         }
-
-        let nslot = Self::node_index(id)?;
-        self.nodes[nslot] = Some(NodeRec { structural: recorded, judgments: Vec::new(), label: None });
         self.cons.insert(key, id);
         Ok(id)
     }
@@ -203,24 +194,39 @@ impl Graph {
     pub fn assert(&mut self, from: NodeId, kind: EdgeKind, to: NodeId) -> Result<EdgeId, MetisError> {
         self.ensure_known(from)?;
         self.ensure_known(to)?;
-        let kind_key = EdgeKindKey::from(kind);
-        let eid = self.alloc_edge_slot()?;
-        let eslot = Self::edge_index(eid)?;
-        self.edges[eslot] = Some(EdgeRec { from, to, kind: kind_key, judgment: true });
-        self.node_rec_mut(from)?.judgments.push((eid, kind_key, to));
-        Ok(eid)
+        self.add_base_edge(from, to, EdgeMeta { kind: EdgeKindKey::from(kind), structural: false })
+    }
+
+    fn outgoing_filtered(
+        &self,
+        id: NodeId,
+        structural: Option<bool>,
+    ) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
+        self.ensure_known(id)?;
+        let mut out = Vec::new();
+        for (s, t, eid) in self.builder.graph().edges() {
+            if s != id {
+                continue;
+            }
+            let meta = self.edge_meta.get(&eid).ok_or(MetisError::EdgeNotFound)?;
+            if let Some(want) = structural {
+                if meta.structural != want {
+                    continue;
+                }
+            }
+            out.push((eid, EdgeKind::from(meta.kind), t));
+        }
+        Ok(out)
     }
 
     /// Structural outgoing edges only.
     pub fn structural_outgoing(&self, id: NodeId) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
-        let rec = self.node_rec(id)?;
-        Ok(rec.structural.iter().map(|(e, k, t)| (*e, EdgeKind::from(*k), *t)).collect())
+        self.outgoing_filtered(id, Some(true))
     }
 
     /// Judgment outgoing edges only.
     pub fn judgment_outgoing(&self, id: NodeId) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
-        let rec = self.node_rec(id)?;
-        Ok(rec.judgments.iter().map(|(e, k, t)| (*e, EdgeKind::from(*k), *t)).collect())
+        self.outgoing_filtered(id, Some(false))
     }
 
     /// All outgoing edges (structural then judgment).
@@ -231,23 +237,22 @@ impl Graph {
     }
 
     pub fn edge(&self, id: EdgeId) -> Result<(NodeId, EdgeKind, NodeId), MetisError> {
-        let slot = Self::edge_index(id)?;
-        let rec = self.edges.get(slot).and_then(|e| e.as_ref()).ok_or(MetisError::EdgeNotFound)?;
-        Ok((rec.from, EdgeKind::from(rec.kind), rec.to))
+        let (from, to) = self.builder.graph().edge_endpoints(id).ok_or(MetisError::EdgeNotFound)?;
+        let meta = self.edge_meta.get(&id).ok_or(MetisError::EdgeNotFound)?;
+        Ok((from, EdgeKind::from(meta.kind), to))
     }
 
     pub fn is_judgment(&self, id: EdgeId) -> Result<bool, MetisError> {
-        let slot = Self::edge_index(id)?;
-        let rec = self.edges.get(slot).and_then(|e| e.as_ref()).ok_or(MetisError::EdgeNotFound)?;
-        Ok(rec.judgment)
+        let meta = self.edge_meta.get(&id).ok_or(MetisError::EdgeNotFound)?;
+        Ok(!meta.structural)
     }
 
     pub fn node_count(&self) -> usize {
-        self.nodes.iter().filter(|n| n.is_some()).count()
+        self.builder.graph().node_count() as usize
     }
 
     pub fn edge_count(&self) -> usize {
-        self.edges.iter().filter(|e| e.is_some()).count()
+        self.builder.graph().edge_count() as usize
     }
 
     /// Directed reachability over all outgoing edges.
@@ -256,8 +261,8 @@ impl Graph {
     }
 
     pub fn find_directed_path(&self, from: NodeId, to: NodeId) -> Result<Option<Vec<EdgeId>>, MetisError> {
-        let _ = self.node_rec(from)?;
-        let _ = self.node_rec(to)?;
+        self.ensure_known(from)?;
+        self.ensure_known(to)?;
         if from == to {
             return Ok(Some(Vec::new()));
         }
@@ -289,33 +294,33 @@ impl Graph {
 
     /// Undirected adjacency via judgment `Equal` edges (for EQ theory).
     pub fn equal_steps(&self, id: NodeId) -> Result<Vec<(Step, NodeId)>, MetisError> {
-        let _ = self.node_rec(id)?;
+        self.ensure_known(id)?;
         let mut out = Vec::new();
         for (eid, kind, nxt) in self.judgment_outgoing(id)? {
             if kind == EdgeKind::Equal {
                 out.push((Step { edge: eid, forward: true }, nxt));
             }
         }
-        // Reverse Equal: scan all judgment edges ending at `id`.
-        for (slot, maybe) in self.edges.iter().enumerate() {
-            let Some(rec) = maybe
+        for (s, t, eid) in self.builder.graph().edges() {
+            if t != id {
+                continue;
+            }
+            let Some(meta) = self.edge_meta.get(&eid)
             else {
                 continue;
             };
-            if !rec.judgment || rec.kind != EdgeKindKey::Equal || rec.to != id {
+            if meta.structural || meta.kind != EdgeKindKey::Equal {
                 continue;
             }
-            let raw = NonZeroU32::new((slot + 1) as u32).ok_or(MetisError::InvalidHandle)?;
-            let eid = EdgeId::from_raw(raw);
-            out.push((Step { edge: eid, forward: false }, rec.from));
+            out.push((Step { edge: eid, forward: false }, s));
         }
         Ok(out)
     }
 
     /// Search an undirected `Equal` path (symmetry + transitivity of edge composition).
     pub fn find_equal_path(&self, from: NodeId, to: NodeId) -> Result<Option<Vec<Step>>, MetisError> {
-        let _ = self.node_rec(from)?;
-        let _ = self.node_rec(to)?;
+        self.ensure_known(from)?;
+        self.ensure_known(to)?;
         if from == to {
             return Ok(Some(Vec::new()));
         }
@@ -394,5 +399,13 @@ mod tests {
         assert_eq!(g.edge_count(), 1);
         assert!(g.reaches(a, leaf).unwrap());
         assert!(!g.reaches(leaf, a).unwrap());
+    }
+
+    #[test]
+    fn seal_yields_immutable_base() {
+        let mut g = Graph::new();
+        let _ = g.intern_label(b"x").unwrap();
+        let im = g.seal();
+        assert_eq!(im.node_count(), 1);
     }
 }

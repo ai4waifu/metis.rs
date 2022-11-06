@@ -56,6 +56,7 @@ Requires the workspace Rust toolchain (see `rust-toolchain.toml`).
 - Structural outs hash-cons; judgment edges assert facts without rewriting identity.
 - Trusted boundary is Metis Core (world / admission / connection). Island verifiers do not define Core.
 - Object heap protocol is `athena-gc`. Do not add `metis-gc` / `metis-arena`.
+- Ordinary discrete adjacency is `athena-graph` (not CAS M-Graph). `metis-graph` only adds Metis semantics.
 - Islands are local relation worlds under Core. ZFC is one island, not the foundation of every other island.
 - Connection is a world morphism first; Galois needs extra proof.
 - Query results are at least Proven / Refuted / Unknown / Inconsistent. Missing a path is not negation by default.
