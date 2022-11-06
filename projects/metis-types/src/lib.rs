@@ -61,4 +61,6 @@ pub enum MetisError {
     InvalidHandle,
     #[error("graph base rejected mutation")]
     GraphRejected,
+    #[error("connection invalid")]
+    ConnectionInvalid,
 }
