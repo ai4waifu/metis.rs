@@ -7,9 +7,7 @@
 use std::{collections::HashMap, num::NonZeroU32};
 
 use metis_graph::admission::WorldId;
-use metis_graph::connection::{
-    CandidateConnection, bidirectional_skeleton, refuse_galois_without_proof, validate_candidate,
-};
+use metis_graph::connection::{CandidateConnection, bidirectional_skeleton, validate_candidate};
 use metis_graph::Graph;
 use metis_types::{IslandId, MetisError};
 
@@ -221,7 +219,7 @@ mod tests {
 
     #[test]
     fn bidirectional_connection_between_accepted_islands() {
-        use metis_graph::connection::ConnectionClass;
+        use metis_graph::connection::{ConnectionClass, refuse_galois_without_proof};
         let mut store = IslandStore::new();
         let a = store.register_accepted("ZFC").unwrap();
         let b = store.register_accepted("HoTT").unwrap();
