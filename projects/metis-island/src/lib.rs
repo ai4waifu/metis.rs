@@ -4,12 +4,16 @@
 //! promoted into the accepted table. Each island carries a monotonic
 //! [`WorldId::version`] for Core-relative world context.
 
-use std::{collections::HashMap, num::NonZeroU32};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroU32,
+};
 
 use metis_graph::admission::WorldId;
+use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
 use metis_graph::connection::{CandidateConnection, bidirectional_skeleton, validate_candidate};
 use metis_graph::Graph;
-use metis_types::{IslandId, MetisError};
+use metis_types::{IslandId, MetisError, NodeId};
 
 /// Named island entry.
 pub struct Island {
@@ -36,6 +40,8 @@ pub struct IslandStore {
     staging: Option<(IslandId, Island)>,
     /// Candidate connections only — never auto-admitted as Galois.
     connections: Vec<CandidateConnection>,
+    /// Islands quarantined after an explicit local conflict (does not cascade).
+    quarantined: HashSet<IslandId>,
 }
 
 impl IslandStore {
@@ -184,6 +190,28 @@ impl IslandStore {
         let world = entry.world_id(island);
         metis_graph::derivation::search_and_admit_equal(&entry.graph, world, left, right)
     }
+
+    pub fn is_quarantined(&self, island: IslandId) -> bool {
+        self.quarantined.contains(&island)
+    }
+
+    /// Detect an endpoint conflict under `policy`. On hit, quarantine **only** that island.
+    pub fn report_conflict(
+        &mut self,
+        island: IslandId,
+        endpoints: (NodeId, NodeId),
+        policy: Incompatibility,
+    ) -> Result<Option<metis_graph::admission::ConflictReport>, MetisError> {
+        let report = {
+            let entry = self.get(island)?;
+            let world = entry.world_id(island);
+            detect_judgment_conflict(&entry.graph, world, endpoints, policy)?
+        };
+        if report.is_some() {
+            self.quarantined.insert(island);
+        }
+        Ok(report)
+    }
 }
 
 #[cfg(test)]
@@ -254,6 +282,33 @@ mod tests {
         assert_eq!(store.connections()[i].class, ConnectionClass::BidirectionalSkeleton);
         assert_eq!(store.connections()[j].source.island, b);
         assert!(refuse_galois_without_proof(&store.connections()[i]).is_err());
+    }
+
+    #[test]
+    fn conflict_quarantines_only_that_island() {
+        use metis_graph::conflict::Incompatibility;
+        const NOT_EQ: u16 = 7;
+        let mut store = IslandStore::new();
+        let a = store.register_accepted("A").unwrap();
+        let b = store.register_accepted("B").unwrap();
+        // Put conflict only in A via staging→accept would freeze empty; mutate before accept:
+        let sid = store.open_staging("draft").unwrap();
+        let (x, y) = {
+            let st = store.staging_mut().unwrap();
+            let x = st.graph.intern_label(b"x").unwrap();
+            let y = st.graph.intern_label(b"y").unwrap();
+            st.graph.assert(x, EdgeKind::Equal, y).unwrap();
+            st.graph.assert(x, EdgeKind::Custom(NOT_EQ), y).unwrap();
+            (x, y)
+        };
+        let a2 = store.accept_staging("A2").unwrap();
+        assert_eq!(a2, sid);
+        let policy = Incompatibility::equal_vs_custom_not_equal(NOT_EQ);
+        let report = store.report_conflict(a2, (x, y), policy).unwrap();
+        assert!(report.is_some());
+        assert!(store.is_quarantined(a2));
+        assert!(!store.is_quarantined(a));
+        assert!(!store.is_quarantined(b));
     }
 
     #[test]
