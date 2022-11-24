@@ -12,8 +12,10 @@ use std::{
 use metis_graph::admission::WorldId;
 use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
 use metis_graph::connection::{CandidateConnection, bidirectional_skeleton, validate_candidate};
+use metis_graph::rules::RuleTable;
+use metis_graph::transform::TransformationSchema;
 use metis_graph::Graph;
-use metis_types::{IslandId, MetisError, NodeId};
+use metis_types::{EdgeId, EdgeKind, IslandId, MetisError, NodeId};
 
 /// Named island entry.
 pub struct Island {
@@ -22,9 +24,21 @@ pub struct Island {
     pub accepted: bool,
     /// Monotonic world version (bumped when staging is accepted).
     pub version: u64,
+    /// Declared generating kinds + transformation schemas for this world.
+    pub rules: RuleTable,
 }
 
 impl Island {
+    fn new(name: impl Into<String>, accepted: bool, version: u64) -> Self {
+        Self {
+            name: name.into(),
+            graph: Graph::new(),
+            accepted,
+            version,
+            rules: RuleTable::default(),
+        }
+    }
+
     /// Relative world handle for Core admission context.
     pub fn world_id(&self, id: IslandId) -> WorldId {
         WorldId { island: id, version: self.version }
@@ -63,10 +77,7 @@ impl IslandStore {
         }
         let id = self.alloc_id()?;
         self.by_name.insert(name.clone(), id);
-        self.islands.insert(
-            id,
-            Island { name, graph: Graph::new(), accepted: true, version: 1 },
-        );
+        self.islands.insert(id, Island::new(name, true, 1));
         Ok(id)
     }
 
@@ -89,15 +100,38 @@ impl IslandStore {
     /// Open a disposable staging island. Replaces any previous staging.
     pub fn open_staging(&mut self, name: impl Into<String>) -> Result<IslandId, MetisError> {
         let id = self.alloc_id()?;
-        self.staging = Some((
-            id,
-            Island { name: name.into(), graph: Graph::new(), accepted: false, version: 0 },
-        ));
+        self.staging = Some((id, Island::new(name, false, 0)));
         Ok(id)
     }
 
     pub fn staging_mut(&mut self) -> Result<&mut Island, MetisError> {
         self.staging.as_mut().map(|(_, island)| island).ok_or(MetisError::IslandNotFound)
+    }
+
+    /// Declare a generating relation kind on the current staging island.
+    pub fn declare_generating_kind(&mut self, kind: EdgeKind) -> Result<(), MetisError> {
+        self.staging_mut()?.rules.declare_kind(kind);
+        Ok(())
+    }
+
+    /// Declare a transformation schema on the current staging island.
+    pub fn declare_transform(&mut self, schema: TransformationSchema) -> Result<(), MetisError> {
+        self.staging_mut()?.rules.add_transform(schema);
+        Ok(())
+    }
+
+    /// Assert a generating judgment only if the kind was declared in the staging rule table.
+    pub fn assert_generating(
+        &mut self,
+        from: NodeId,
+        kind: EdgeKind,
+        to: NodeId,
+    ) -> Result<EdgeId, MetisError> {
+        let st = self.staging_mut()?;
+        if !st.rules.signature.allows(kind) {
+            return Err(MetisError::ProofInvalid);
+        }
+        st.graph.assert(from, kind, to)
     }
 
     pub fn staging_id(&self) -> Option<IslandId> {
@@ -334,5 +368,96 @@ mod tests {
         let (st, adm) = store.search_admit_equal(id, a, b).unwrap();
         assert_eq!(st, metis_graph::admission::QueryStatus::Proven);
         assert!(adm.is_some());
+    }
+
+    #[test]
+    fn generating_kind_must_be_declared_before_assert() {
+        let mut store = IslandStore::new();
+        store.open_staging("draft").unwrap();
+        let (a, b) = {
+            let st = store.staging_mut().unwrap();
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            (a, b)
+        };
+        assert_eq!(
+            store.assert_generating(a, EdgeKind::Equal, b).unwrap_err(),
+            MetisError::ProofInvalid
+        );
+        store.declare_generating_kind(EdgeKind::Equal).unwrap();
+        store.assert_generating(a, EdgeKind::Equal, b).unwrap();
+    }
+
+    /// Living Core first-slice acceptance checklist (smoke).
+    #[test]
+    fn core_acceptance_smoke_eight_points() {
+        use metis_graph::admission::QueryStatus;
+        use metis_graph::conflict::Incompatibility;
+        use metis_graph::transform::{TransformationInstance, TransformationSchema, replay_two_premise};
+
+        const NOT_EQ: u16 = 9;
+        let mut store = IslandStore::new();
+        // 1. declare generating kinds
+        store.open_staging("eq").unwrap();
+        store.declare_generating_kind(EdgeKind::Equal).unwrap();
+        store.declare_generating_kind(EdgeKind::Custom(NOT_EQ)).unwrap();
+        // 2. declare two-premise transform
+        store.declare_transform(TransformationSchema::equal_transitivity()).unwrap();
+        let (a, b, c) = {
+            let st = store.staging_mut().unwrap();
+            assert!(st.rules.has_transform("equal_transitivity"));
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            let c = st.graph.intern_label(b"c").unwrap();
+            (a, b, c)
+        };
+        store.assert_generating(a, EdgeKind::Equal, b).unwrap();
+        store.assert_generating(b, EdgeKind::Equal, c).unwrap();
+        let id = store.accept_staging("EQ").unwrap();
+        let island = store.get(id).unwrap();
+        let world = island.world_id(id);
+        // 3–4. searcher proposes instance; kernel replays and admits
+        let schema = TransformationSchema::equal_transitivity();
+        let inst = TransformationInstance {
+            premise_a: (a, b),
+            premise_b: (b, c),
+            conclusion: (a, c),
+        };
+        let adm = replay_two_premise(&island.graph, world, &schema, &inst).unwrap();
+        assert_eq!(adm.endpoints(), (a, c));
+        // 5. tamper conclusion → reject
+        let bad = TransformationInstance { conclusion: (a, b), ..inst };
+        assert!(replay_two_premise(&island.graph, world, &schema, &bad).is_err());
+        // 6. missing path → Unknown
+        store.open_staging("u").unwrap();
+        store.declare_generating_kind(EdgeKind::Equal).unwrap();
+        let (x, y) = {
+            let st = store.staging_mut().unwrap();
+            (st.graph.intern_label(b"x").unwrap(), st.graph.intern_label(b"y").unwrap())
+        };
+        let uid = store.accept_staging("U").unwrap();
+        let (st, none) = store.search_admit_equal(uid, x, y).unwrap();
+        assert_eq!(st, QueryStatus::Unknown);
+        assert!(none.is_none());
+        // 7. conflict isolates only that island
+        store.open_staging("c").unwrap();
+        store.declare_generating_kind(EdgeKind::Equal).unwrap();
+        store.declare_generating_kind(EdgeKind::Custom(NOT_EQ)).unwrap();
+        let (p, q) = {
+            let st = store.staging_mut().unwrap();
+            let p = st.graph.intern_label(b"p").unwrap();
+            let q = st.graph.intern_label(b"q").unwrap();
+            (p, q)
+        };
+        store.assert_generating(p, EdgeKind::Equal, q).unwrap();
+        store.assert_generating(p, EdgeKind::Custom(NOT_EQ), q).unwrap();
+        let cid = store.accept_staging("C").unwrap();
+        let policy = Incompatibility::equal_vs_custom_not_equal(NOT_EQ);
+        assert!(store.report_conflict(cid, (p, q), policy).unwrap().is_some());
+        assert!(store.is_quarantined(cid));
+        assert!(!store.is_quarantined(id));
+        // 8. same evidence → same tag
+        let adm2 = replay_two_premise(&store.get(id).unwrap().graph, world, &schema, &inst).unwrap();
+        assert_eq!(adm.evidence_tag(), adm2.evidence_tag());
     }
 }
