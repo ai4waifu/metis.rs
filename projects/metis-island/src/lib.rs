@@ -9,9 +9,12 @@ use std::{
     num::NonZeroU32,
 };
 
-use metis_graph::admission::WorldId;
+use metis_graph::admission::{AdmittedRelation, WorldId};
 use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
-use metis_graph::connection::{CandidateConnection, bidirectional_skeleton, validate_candidate};
+use metis_graph::connection::{
+    AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton, transport_relation,
+    validate_candidate,
+};
 use metis_graph::rules::RuleTable;
 use metis_graph::transform::TransformationSchema;
 use metis_graph::Graph;
@@ -54,6 +57,8 @@ pub struct IslandStore {
     staging: Option<(IslandId, Island)>,
     /// Candidate connections only — never auto-admitted as Galois.
     connections: Vec<CandidateConnection>,
+    /// Core-admitted world morphisms (inner-world transport authority).
+    admitted_connections: Vec<AdmittedConnection>,
     /// Islands quarantined after an explicit local conflict (does not cascade).
     quarantined: HashSet<IslandId>,
 }
@@ -199,6 +204,46 @@ impl IslandStore {
         &self.connections
     }
 
+    pub fn admitted_connections(&self) -> &[AdmittedConnection] {
+        &self.admitted_connections
+    }
+
+    /// Promote a registered candidate at `index` into an admitted world morphism.
+    ///
+    /// Rejects bidirectional skeletons and Galois claims. Worlds must still match
+    /// the store's current island versions.
+    pub fn admit_registered_connection(&mut self, index: usize) -> Result<usize, MetisError> {
+        let candidate = self.connections.get(index).cloned().ok_or(MetisError::InvalidHandle)?;
+        self.require_known_world(candidate.source)?;
+        self.require_known_world(candidate.target)?;
+        let admitted = admit_connection(&candidate)?;
+        self.admitted_connections.push(admitted);
+        Ok(self.admitted_connections.len() - 1)
+    }
+
+    /// Register then immediately admit a world-morphism candidate.
+    pub fn admit_world_morphism(&mut self, candidate: CandidateConnection) -> Result<usize, MetisError> {
+        self.register_connection(candidate.clone())?;
+        let idx = self.connections.len() - 1;
+        self.admit_registered_connection(idx)
+    }
+
+    /// Transport an admitted relation along an admitted connection index.
+    pub fn transport_along(
+        &self,
+        connection_index: usize,
+        relation: AdmittedRelation,
+        kind: EdgeKind,
+    ) -> Result<AdmittedRelation, MetisError> {
+        let conn = self
+            .admitted_connections
+            .get(connection_index)
+            .ok_or(MetisError::InvalidHandle)?;
+        self.require_known_world(conn.source())?;
+        self.require_known_world(conn.target())?;
+        transport_relation(conn, relation, kind)
+    }
+
     /// Admit an EQ derivation only if `diagram.world` matches the island's current version.
     pub fn admit_equal(
         &self,
@@ -316,6 +361,53 @@ mod tests {
         assert_eq!(store.connections()[i].class, ConnectionClass::BidirectionalSkeleton);
         assert_eq!(store.connections()[j].source.island, b);
         assert!(refuse_galois_without_proof(&store.connections()[i]).is_err());
+        // Bidirectional skeletons cannot be Core-admitted as morphisms.
+        assert_eq!(
+            store.admit_registered_connection(i).unwrap_err(),
+            MetisError::ConnectionInvalid
+        );
+        assert!(store.admitted_connections().is_empty());
+    }
+
+    #[test]
+    fn admit_morphism_and_transport_equal() {
+        use metis_graph::connection::ConnectionClass;
+        let mut store = IslandStore::new();
+        store.open_staging("L").unwrap();
+        let (a, b) = {
+            let st = store.staging_mut().unwrap();
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            (a, b)
+        };
+        let left = store.accept_staging("Left").unwrap();
+
+        store.open_staging("R").unwrap();
+        let (a2, b2) = {
+            let st = store.staging_mut().unwrap();
+            let a2 = st.graph.intern_label(b"A").unwrap();
+            let b2 = st.graph.intern_label(b"B").unwrap();
+            (a2, b2)
+        };
+        let right = store.accept_staging("Right").unwrap();
+
+        let lw = store.get(left).unwrap().world_id(left);
+        let rw = store.get(right).unwrap().world_id(right);
+        let candidate = CandidateConnection {
+            source: lw,
+            target: rw,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(a, a2), (b, b2)]),
+            relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::Equal)]),
+            lossy: false,
+        };
+        let cidx = store.admit_world_morphism(candidate).unwrap();
+        assert_eq!(store.admitted_connections().len(), 1);
+
+        let rel = AdmittedRelation::bootstrap_unchecked(lw, (a, b), 7);
+        let moved = store.transport_along(cidx, rel, EdgeKind::Equal).unwrap();
+        assert_eq!(moved.world(), rw);
+        assert_eq!(moved.endpoints(), (a2, b2));
     }
 
     #[test]
