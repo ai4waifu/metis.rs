@@ -8,3 +8,6 @@ description = "Parse and lower .metis sources (oak-metis AST)"
 
 [dependencies]
 oak-metis = { workspace = true }
+metis-types = { workspace = true }
+metis-island = { workspace = true }
+metis-graph = { workspace = true }
