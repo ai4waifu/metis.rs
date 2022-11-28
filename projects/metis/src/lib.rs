@@ -1,7 +1,7 @@
 //! Stable Metis facade.
 
 pub use athena_gc::{GcHeap, HeapBudget};
-pub use metis_compile::parse_source;
+pub use metis_compile::{LoweringResult, compile_declarations, lower_module, parse_source};
 pub use metis_graph::{
     Graph, Step,
     admission::{AdmittedRelation, CandidateRelation, ConflictReport, QueryStatus, WorldId, unknown_if_missing},
