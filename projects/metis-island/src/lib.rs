@@ -9,7 +9,7 @@ use std::{
     num::NonZeroU32,
 };
 
-use metis_graph::admission::{AdmittedRelation, WorldId};
+use metis_graph::admission::{AdmittedRelation, AdmittedWorld, WorldId};
 use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
 use metis_graph::connection::{
     AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton, transport_relation,
@@ -59,6 +59,8 @@ pub struct IslandStore {
     connections: Vec<CandidateConnection>,
     /// Core-admitted world morphisms (inner-world transport authority).
     admitted_connections: Vec<AdmittedConnection>,
+    /// Core-admitted worlds minted when staging is accepted or an island is registered.
+    admitted_worlds: Vec<AdmittedWorld>,
     /// Islands quarantined after an explicit local conflict (does not cascade).
     quarantined: HashSet<IslandId>,
 }
@@ -83,6 +85,8 @@ impl IslandStore {
         let id = self.alloc_id()?;
         self.by_name.insert(name.clone(), id);
         self.islands.insert(id, Island::new(name, true, 1));
+        let world = self.islands.get(&id).unwrap().world_id(id);
+        self.admitted_worlds.push(AdmittedWorld::admit(world));
         Ok(id)
     }
 
@@ -163,7 +167,20 @@ impl IslandStore {
         island.version = island.version.saturating_add(1);
         self.by_name.insert(name, id);
         self.islands.insert(id, island);
+        let world = self.islands.get(&id).unwrap().world_id(id);
+        self.admitted_worlds.push(AdmittedWorld::admit(world));
         Ok(id)
+    }
+
+    pub fn admitted_worlds(&self) -> &[AdmittedWorld] {
+        &self.admitted_worlds
+    }
+
+    /// Return the admitted world for `island` if its current version was minted.
+    pub fn admitted_world_of(&self, island: IslandId) -> Option<AdmittedWorld> {
+        let entry = self.islands.get(&island)?;
+        let current = entry.world_id(island);
+        self.admitted_worlds.iter().copied().find(|w| w.world() == current)
     }
 
     fn require_known_world(&self, world: WorldId) -> Result<(), MetisError> {
@@ -339,6 +356,8 @@ mod tests {
         assert_eq!(w.island, id);
         assert_eq!(w.version, 1);
         assert!(store.get_mut(id).is_err());
+        let adm = store.admitted_world_of(id).expect("admitted world");
+        assert_eq!(adm.world(), w);
     }
 
     #[test]
