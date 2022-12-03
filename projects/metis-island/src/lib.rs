@@ -114,10 +114,17 @@ impl IslandStore {
     }
 
     /// Open a disposable staging island. Replaces any previous staging.
+    ///
+    /// Alias of the Living Core `open_world` role for relative outer/staging contexts.
     pub fn open_staging(&mut self, name: impl Into<String>) -> Result<IslandId, MetisError> {
         let id = self.alloc_id()?;
         self.staging = Some((id, Island::new(name, false, 0)));
         Ok(id)
+    }
+
+    /// Living Core name for opening a relative world (staging).
+    pub fn open_world(&mut self, name: impl Into<String>) -> Result<IslandId, MetisError> {
+        self.open_staging(name)
     }
 
     pub fn staging_mut(&mut self) -> Result<&mut Island, MetisError> {
@@ -318,6 +325,17 @@ impl IslandStore {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
         metis_graph::derivation::search_and_admit_equal(&entry.graph, world, left, right)
+    }
+
+    /// Admit an EQ [`CandidateRelation`] under the island's current world (Living `admit_relation`).
+    pub fn admit_equal_candidate(
+        &self,
+        island: IslandId,
+        candidate: metis_graph::admission::CandidateRelation,
+    ) -> Result<metis_graph::admission::AdmittedRelation, MetisError> {
+        let entry = self.get(island)?;
+        let world = entry.world_id(island);
+        metis_graph::relation::admit_equal_relation(&entry.graph, world, candidate)
     }
 
     pub fn is_quarantined(&self, island: IslandId) -> bool {
@@ -526,6 +544,30 @@ mod tests {
                 .unwrap_err(),
             MetisError::ConnectionInvalid
         );
+    }
+
+    #[test]
+    fn form_compose_and_admit_equal_candidate() {
+        use metis_graph::relation::{compose_equal_relations, form_relation};
+        let mut store = IslandStore::new();
+        let sid = store.open_world("draft").unwrap();
+        let (a, b, c) = {
+            let st = store.staging_mut().unwrap();
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            let c = st.graph.intern_label(b"c").unwrap();
+            st.graph.assert(a, EdgeKind::Equal, b).unwrap();
+            st.graph.assert(b, EdgeKind::Equal, c).unwrap();
+            (a, b, c)
+        };
+        let id = store.accept_staging("EQ").unwrap();
+        assert_eq!(id, sid);
+        let world = store.get(id).unwrap().world_id(id);
+        let ab = store.admit_equal_candidate(id, form_relation(world, (a, b), None)).unwrap();
+        let bc = store.admit_equal_candidate(id, form_relation(world, (b, c), None)).unwrap();
+        let cand = compose_equal_relations(ab, bc).unwrap();
+        let ac = store.admit_equal_candidate(id, cand).unwrap();
+        assert_eq!(ac.endpoints(), (a, c));
     }
 
     #[test]
