@@ -80,9 +80,9 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
 
         // `use` must name an already-accepted island (declaration order matters).
         for name in &uses {
-            if out.store.lookup(name).is_none() {
-                return Err(MetisError::IslandNotFound);
-            }
+            let pid = out.store.lookup(name).ok_or(MetisError::IslandNotFound)?;
+            let parent = out.store.get(pid)?.world_id(pid);
+            out.store.add_staging_parent(parent)?;
         }
 
         let id = out.store.accept_staging(island.name.clone())?;
@@ -159,7 +159,12 @@ island Ext {
 "#,
         )
         .expect("parse");
-        assert!(lower_module(&ok).is_ok());
+        let low = lower_module(&ok).expect("lower");
+        let ext = low.store.lookup("Ext").unwrap();
+        let base = low.store.lookup("Base").unwrap();
+        let parents = &low.store.get(ext).unwrap().parents;
+        assert_eq!(parents.len(), 1);
+        assert_eq!(parents[0], low.store.get(base).unwrap().world_id(base));
 
         let bad = parse_module(
             r#"
