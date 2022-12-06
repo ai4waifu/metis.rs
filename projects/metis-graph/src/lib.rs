@@ -1,6 +1,7 @@
 //! Metis relation semantics on [`athena_graph`].
 //!
-//! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] (not CAS M-Graph).
+//! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] with [`NodePayload`] /
+//!   [`EdgePayload`] (not CAS M-Graph).
 //! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
 //! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
 //! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`transform`], [`conflict`], [`rules`], [`eval`].
@@ -23,9 +24,12 @@ pub mod conflict;
 pub mod connection;
 pub mod derivation;
 pub mod eval;
+pub mod payload;
 pub mod relation;
 pub mod rules;
 pub mod transform;
+
+pub use payload::{EdgePayload, NodePayload};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum EdgeKindKey {
@@ -63,12 +67,6 @@ struct OutKey {
     to: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct EdgeMeta {
-    kind: EdgeKindKey,
-    structural: bool,
-}
-
 /// Directed step along a judgment edge, possibly reversed (for symmetric kinds).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Step {
@@ -87,11 +85,11 @@ fn metis_semantics() -> GraphSemantics {
 
 /// Mutable working graph (staging or accepted island body before seal).
 pub struct Graph {
-    builder: GraphBuilder<(), ()>,
+    builder: GraphBuilder<NodePayload, EdgePayload>,
     cons: HashMap<Vec<OutKey>, NodeId>,
     labels: HashMap<Vec<u8>, NodeId>,
     label_of: HashMap<NodeId, Vec<u8>>,
-    edge_meta: HashMap<EdgeId, EdgeMeta>,
+    edge_meta: HashMap<EdgeId, EdgePayload>,
     heap: Rc<RefCell<GcHeap>>,
 }
 
@@ -122,17 +120,17 @@ impl Graph {
     }
 
     /// Underlying athena builder (ordinary discrete graph).
-    pub fn base(&self) -> &GraphBuilder<(), ()> {
+    pub fn base(&self) -> &GraphBuilder<NodePayload, EdgePayload> {
         &self.builder
     }
 
     /// Seal into an immutable ordinary graph (drops Metis cons tables).
-    pub fn seal(self) -> ImmutableGraph<(), ()> {
+    pub fn seal(self) -> ImmutableGraph<NodePayload, EdgePayload> {
         self.builder.finish()
     }
 
     /// Seal and publish snapshot roots on the shared [`GcHeap`].
-    pub fn seal_on_heap(self) -> Result<PublishedImmutableGraph<(), ()>, MetisError> {
+    pub fn seal_on_heap(self) -> Result<PublishedImmutableGraph<NodePayload, EdgePayload>, MetisError> {
         let mut heap = self.heap.borrow_mut();
         self.builder.finish_on_heap(&mut heap).map_err(|_| MetisError::GraphRejected)
     }
@@ -155,9 +153,9 @@ impl Graph {
         Ok(())
     }
 
-    fn add_base_edge(&mut self, from: NodeId, to: NodeId, meta: EdgeMeta) -> Result<EdgeId, MetisError> {
-        let eid = self.builder.add_edge(from, to, ()).ok_or(MetisError::GraphRejected)?;
-        self.edge_meta.insert(eid, meta);
+    fn add_base_edge(&mut self, from: NodeId, to: NodeId, payload: EdgePayload) -> Result<EdgeId, MetisError> {
+        let eid = self.builder.add_edge(from, to, payload).ok_or(MetisError::GraphRejected)?;
+        self.edge_meta.insert(eid, payload);
         Ok(eid)
     }
 
@@ -167,7 +165,7 @@ impl Graph {
         if let Some(id) = self.labels.get(&key).copied() {
             return Ok(id);
         }
-        let id = self.builder.add_node(());
+        let id = self.builder.add_node(NodePayload::labeled(&key));
         self.labels.insert(key.clone(), id);
         self.label_of.insert(id, key);
         Ok(id)
@@ -183,13 +181,9 @@ impl Graph {
             return Ok(id);
         }
 
-        let id = self.builder.add_node(());
+        let id = self.builder.add_node(NodePayload::unlabeled());
         for (kind, to) in outs {
-            self.add_base_edge(
-                id,
-                *to,
-                EdgeMeta { kind: EdgeKindKey::from(*kind), structural: true },
-            )?;
+            self.add_base_edge(id, *to, EdgePayload::structural(*kind))?;
         }
         self.cons.insert(key, id);
         Ok(id)
@@ -204,7 +198,7 @@ impl Graph {
     pub fn assert(&mut self, from: NodeId, kind: EdgeKind, to: NodeId) -> Result<EdgeId, MetisError> {
         self.ensure_known(from)?;
         self.ensure_known(to)?;
-        self.add_base_edge(from, to, EdgeMeta { kind: EdgeKindKey::from(kind), structural: false })
+        self.add_base_edge(from, to, EdgePayload::judgment(kind))
     }
 
     fn outgoing_filtered(
@@ -224,7 +218,7 @@ impl Graph {
                     continue;
                 }
             }
-            out.push((eid, EdgeKind::from(meta.kind), t));
+            out.push((eid, meta.kind, t));
         }
         Ok(out)
     }
@@ -249,12 +243,17 @@ impl Graph {
     pub fn edge(&self, id: EdgeId) -> Result<(NodeId, EdgeKind, NodeId), MetisError> {
         let (from, to) = self.builder.graph().edge_endpoints(id).ok_or(MetisError::EdgeNotFound)?;
         let meta = self.edge_meta.get(&id).ok_or(MetisError::EdgeNotFound)?;
-        Ok((from, EdgeKind::from(meta.kind), to))
+        Ok((from, meta.kind, to))
     }
 
     pub fn is_judgment(&self, id: EdgeId) -> Result<bool, MetisError> {
         let meta = self.edge_meta.get(&id).ok_or(MetisError::EdgeNotFound)?;
         Ok(!meta.structural)
+    }
+
+    /// Payload written onto the ordinary graph edge (mirrors sidecar meta).
+    pub fn edge_payload(&self, id: EdgeId) -> Result<EdgePayload, MetisError> {
+        self.edge_meta.get(&id).copied().ok_or(MetisError::EdgeNotFound)
     }
 
     pub fn node_count(&self) -> usize {
@@ -319,7 +318,7 @@ impl Graph {
             else {
                 continue;
             };
-            if meta.structural || meta.kind != EdgeKindKey::Equal {
+            if meta.structural || meta.kind != EdgeKind::Equal {
                 continue;
             }
             out.push((Step { edge: eid, forward: false }, s));
@@ -417,5 +416,17 @@ mod tests {
         let _ = g.intern_label(b"x").unwrap();
         let im = g.seal();
         assert_eq!(im.node_count(), 1);
+    }
+
+    #[test]
+    fn payloads_mark_label_and_judgment() {
+        let mut g = Graph::new();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        let e = g.assert(a, EdgeKind::Equal, b).unwrap();
+        assert_eq!(g.label_of(a).unwrap(), Some(b"a".as_slice()));
+        let p = g.edge_payload(e).unwrap();
+        assert_eq!(p, EdgePayload::judgment(EdgeKind::Equal));
+        assert!(!p.structural);
     }
 }
