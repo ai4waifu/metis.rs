@@ -14,6 +14,10 @@ pub use metis_graph::{
         refuse_galois_without_proof, transport_relation, transport_relation_asserting, validate_candidate,
     },
     derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
+    eval::{
+        EvalAttachment, EvalCertificateKind, eval_is_not_equal, eval_query_status, form_eval_attachment,
+        form_eval_candidate, may_request_admission, refuse_eval_as_equal,
+    },
     relation::{admit_equal_relation, compose_equal_relations, form_relation},
     rules::{RelationSignature, RuleTable},
     transform::{PremisePattern, TransformationInstance, TransformationSchema, replay_two_premise},

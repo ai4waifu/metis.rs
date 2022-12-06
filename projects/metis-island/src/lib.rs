@@ -9,12 +9,13 @@ use std::{
     num::NonZeroU32,
 };
 
-use metis_graph::admission::{AdmittedRelation, AdmittedWorld, ObservationBoundary, WorldId};
+use metis_graph::admission::{AdmittedRelation, AdmittedWorld, ObservationBoundary, QueryStatus, WorldId};
 use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
 use metis_graph::connection::{
     AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton,
     transport_relation, transport_relation_asserting, validate_candidate,
 };
+use metis_graph::eval::{EvalAttachment, eval_query_status};
 use metis_graph::rules::RuleTable;
 use metis_graph::transform::TransformationSchema;
 use metis_graph::Graph;
@@ -71,6 +72,8 @@ pub struct IslandStore {
     admitted_connections: Vec<AdmittedConnection>,
     /// Core-admitted worlds minted when staging is accepted or an island is registered.
     admitted_worlds: Vec<AdmittedWorld>,
+    /// Outer Eval attachments (Living `08`) — never auto-written as Equal judgments.
+    eval_attachments: Vec<EvalAttachment>,
     /// Islands quarantined after an explicit local conflict (does not cascade).
     quarantined: HashSet<IslandId>,
 }
@@ -340,6 +343,33 @@ impl IslandStore {
             .ok_or(MetisError::IslandNotFound)?
             .graph;
         transport_relation_asserting(graph, &conn, relation, kind)
+    }
+
+    /// Record an Outer Eval attachment. Does **not** assert Equal or mutate the graph.
+    pub fn record_eval_attachment(&mut self, attachment: EvalAttachment) -> Result<usize, MetisError> {
+        self.require_known_world(attachment.world)?;
+        self.eval_attachments.push(attachment);
+        Ok(self.eval_attachments.len() - 1)
+    }
+
+    pub fn eval_attachments(&self) -> &[EvalAttachment] {
+        &self.eval_attachments
+    }
+
+    /// Query whether an Outer Eval attachment exists. Always [`QueryStatus::Unknown`] for math.
+    pub fn query_eval_at(&self, world: WorldId, position: NodeId) -> Result<QueryStatus, MetisError> {
+        self.require_known_world(world)?;
+        let found = self
+            .eval_attachments
+            .iter()
+            .any(|a| a.world == world && a.position == position);
+        Ok(eval_query_status(found))
+    }
+
+    /// Refuse promoting a recorded Eval attachment into an Equal judgment.
+    pub fn refuse_eval_attachment_as_equal(&self, index: usize) -> Result<(), MetisError> {
+        let att = self.eval_attachments.get(index).ok_or(MetisError::InvalidHandle)?;
+        metis_graph::eval::refuse_eval_as_equal(att)
     }
 
     /// Admit an EQ derivation only if `diagram.world` matches the island's current version.
@@ -804,5 +834,23 @@ mod tests {
         // 8. same evidence → same tag
         let adm2 = replay_two_premise(&store.get(id).unwrap().graph, world, &schema, &inst).unwrap();
         assert_eq!(adm.evidence_tag(), adm2.evidence_tag());
+    }
+
+    #[test]
+    fn eval_attachment_stays_outer_never_equal() {
+        use metis_graph::eval::{EvalCertificateKind, form_eval_attachment};
+        let mut store = IslandStore::new();
+        let id = store.register_accepted("Num").unwrap();
+        let world = store.get(id).unwrap().world_id(id);
+        let nodes_before = store.get(id).unwrap().graph.node_count();
+        let att = form_eval_attachment(world, NodeId(0), 99, EvalCertificateKind::Approximate);
+        let idx = store.record_eval_attachment(att).unwrap();
+        assert_eq!(store.eval_attachments().len(), 1);
+        assert_eq!(store.query_eval_at(world, NodeId(0)).unwrap(), QueryStatus::Unknown);
+        assert_eq!(
+            store.refuse_eval_attachment_as_equal(idx).unwrap_err(),
+            MetisError::ProofInvalid
+        );
+        assert_eq!(store.get(id).unwrap().graph.node_count(), nodes_before);
     }
 }
