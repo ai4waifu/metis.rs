@@ -182,6 +182,16 @@ fn transport_mapped(
     if relation.world() != conn.source {
         return Err(MetisError::ConnectionInvalid);
     }
+    // Abstract identity: empty maps leave endpoints and kind unchanged.
+    if conn.source == conn.target && conn.object_map.is_empty() && conn.relation_map.is_empty() {
+        let tag = conn
+            .evidence_tag
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(relation.evidence_tag())
+            .wrapping_add(kind_tag(kind));
+        let adm = AdmittedRelation::bootstrap_unchecked(conn.target, relation.endpoints(), tag);
+        return Ok((kind, adm));
+    }
     let tgt_kind = *conn.relation_map.get(&kind).ok_or(MetisError::ConnectionInvalid)?;
     let (left, right) = relation.endpoints();
     let left_t = *conn.object_map.get(&left).ok_or(MetisError::ConnectionInvalid)?;
@@ -197,14 +207,78 @@ fn transport_mapped(
 
 /// Structural checks for a candidate. Does **not** prove Galois or transport theorems.
 pub fn validate_candidate(c: &CandidateConnection) -> Result<(), MetisError> {
-    if c.source == c.target {
+    if c.class == ConnectionClass::GaloisClaimed && c.lossy {
         return Err(MetisError::ConnectionInvalid);
     }
-    if c.class == ConnectionClass::GaloisClaimed && c.lossy {
-        // Lossy maps cannot even claim Galois.
-        return Err(MetisError::ConnectionInvalid);
+    if c.source == c.target {
+        // Identity world morphism: maps must be id-like (or empty = abstract identity).
+        if c.class != ConnectionClass::WorldMorphism || c.lossy {
+            return Err(MetisError::ConnectionInvalid);
+        }
+        for (k, v) in &c.object_map {
+            if k != v {
+                return Err(MetisError::ConnectionInvalid);
+            }
+        }
+        for (k, v) in &c.relation_map {
+            if k != v {
+                return Err(MetisError::ConnectionInvalid);
+            }
+        }
+        return Ok(());
     }
     Ok(())
+}
+
+/// Identity world morphism on `world` (Living connection coherence).
+///
+/// Empty maps denote an abstract identity. Non-empty maps must be pointwise id.
+pub fn identity_morphism(world: WorldId) -> CandidateConnection {
+    CandidateConnection {
+        source: world,
+        target: world,
+        class: ConnectionClass::WorldMorphism,
+        object_map: HashMap::new(),
+        relation_map: HashMap::new(),
+        lossy: false,
+    }
+}
+
+/// Compose admitted morphisms `second ∘ first` (apply `first`, then `second`).
+///
+/// Yields an outer [`CandidateConnection`] — still needs [`admit_connection`].
+pub fn compose_connections(
+    first: &AdmittedConnection,
+    second: &AdmittedConnection,
+) -> Result<CandidateConnection, MetisError> {
+    if first.target() != second.source() {
+        return Err(MetisError::ConnectionInvalid);
+    }
+    if first.class() != ConnectionClass::WorldMorphism || second.class() != ConnectionClass::WorldMorphism {
+        return Err(MetisError::ConnectionInvalid);
+    }
+    let mut object_map = HashMap::new();
+    for (a, b) in first.object_map() {
+        if let Some(c) = second.object_map().get(b) {
+            object_map.insert(*a, *c);
+        }
+    }
+    let mut relation_map = HashMap::new();
+    for (k, m) in first.relation_map() {
+        if let Some(n) = second.relation_map().get(m) {
+            relation_map.insert(*k, *n);
+        }
+    }
+    let candidate = CandidateConnection {
+        source: first.source(),
+        target: second.target(),
+        class: ConnectionClass::WorldMorphism,
+        object_map,
+        relation_map,
+        lossy: first.lossy() || second.lossy(),
+    };
+    validate_candidate(&candidate)?;
+    Ok(candidate)
 }
 
 /// Lowering for surface `connection A <-> B`: two opposite world-morphism skeletons.
@@ -365,5 +439,59 @@ mod tests {
         let (from, kind, to) = tgt.edge(edge).unwrap();
         assert_eq!((from, kind, to), (t0, EdgeKind::Equal, t1));
         assert!(tgt.is_judgment(edge).unwrap());
+    }
+
+    #[test]
+    fn identity_morphism_admits_and_transports() {
+        let w = world(1, 1);
+        let id = admit_connection(&identity_morphism(w)).unwrap();
+        assert_eq!(id.source(), w);
+        assert_eq!(id.target(), w);
+        let rel = AdmittedRelation::bootstrap_unchecked(w, (NodeId(3), NodeId(4)), 1);
+        let moved = transport_relation(&id, rel, EdgeKind::Equal).unwrap();
+        assert_eq!(moved.endpoints(), (NodeId(3), NodeId(4)));
+        assert_eq!(moved.world(), w);
+
+        let bad = CandidateConnection {
+            source: w,
+            target: w,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(0), NodeId(1))]),
+            relation_map: HashMap::new(),
+            lossy: false,
+        };
+        assert_eq!(validate_candidate(&bad).unwrap_err(), MetisError::ConnectionInvalid);
+    }
+
+    #[test]
+    fn compose_connections_chains_maps() {
+        let a = world(1, 1);
+        let b = world(2, 1);
+        let c = world(3, 1);
+        let ab = admit_connection(&CandidateConnection {
+            source: a,
+            target: b,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(0), NodeId(1))]),
+            relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::In)]),
+            lossy: false,
+        })
+        .unwrap();
+        let bc = admit_connection(&CandidateConnection {
+            source: b,
+            target: c,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(1), NodeId(2))]),
+            relation_map: HashMap::from([(EdgeKind::In, EdgeKind::Eval)]),
+            lossy: false,
+        })
+        .unwrap();
+        let ac = compose_connections(&ab, &bc).unwrap();
+        assert_eq!(ac.source, a);
+        assert_eq!(ac.target, c);
+        assert_eq!(ac.object_map.get(&NodeId(0)), Some(&NodeId(2)));
+        assert_eq!(ac.relation_map.get(&EdgeKind::Equal), Some(&EdgeKind::Eval));
+        let admitted = admit_connection(&ac).unwrap();
+        assert_eq!(admitted.target(), c);
     }
 }
