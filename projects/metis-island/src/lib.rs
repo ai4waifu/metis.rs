@@ -301,6 +301,32 @@ impl IslandStore {
         self.admit_registered_connection(idx)
     }
 
+    /// Admit the identity world morphism for an accepted island's current version.
+    pub fn admit_identity(&mut self, island: IslandId) -> Result<usize, MetisError> {
+        let world = self.get(island)?.world_id(island);
+        self.admit_world_morphism(metis_graph::connection::identity_morphism(world))
+    }
+
+    /// Compose two admitted connections and admit the composite morphism.
+    pub fn admit_composed_connection(
+        &mut self,
+        first_index: usize,
+        second_index: usize,
+    ) -> Result<usize, MetisError> {
+        let first = self
+            .admitted_connections
+            .get(first_index)
+            .cloned()
+            .ok_or(MetisError::InvalidHandle)?;
+        let second = self
+            .admitted_connections
+            .get(second_index)
+            .cloned()
+            .ok_or(MetisError::InvalidHandle)?;
+        let candidate = metis_graph::connection::compose_connections(&first, &second)?;
+        self.admit_world_morphism(candidate)
+    }
+
     /// Transport an admitted relation along an admitted connection index.
     ///
     /// Target world must not be sealed (no further admissions into a closed observation).
@@ -852,5 +878,47 @@ mod tests {
             MetisError::ProofInvalid
         );
         assert_eq!(store.get(id).unwrap().graph.node_count(), nodes_before);
+    }
+
+    #[test]
+    fn admit_identity_and_compose_morphisms() {
+        use metis_graph::connection::ConnectionClass;
+        let mut store = IslandStore::new();
+        let a = store.register_accepted("A").unwrap();
+        let b = store.register_accepted("B").unwrap();
+        let c = store.register_accepted("C").unwrap();
+        let id_a = store.admit_identity(a).unwrap();
+        assert_eq!(store.admitted_connections()[id_a].source(), store.get(a).unwrap().world_id(a));
+        assert_eq!(store.admitted_connections()[id_a].target(), store.get(a).unwrap().world_id(a));
+
+        let aw = store.get(a).unwrap().world_id(a);
+        let bw = store.get(b).unwrap().world_id(b);
+        let cw = store.get(c).unwrap().world_id(c);
+        let ab = store
+            .admit_world_morphism(CandidateConnection {
+                source: aw,
+                target: bw,
+                class: ConnectionClass::WorldMorphism,
+                object_map: HashMap::from([(NodeId(0), NodeId(1))]),
+                relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::Equal)]),
+                lossy: false,
+            })
+            .unwrap();
+        let bc = store
+            .admit_world_morphism(CandidateConnection {
+                source: bw,
+                target: cw,
+                class: ConnectionClass::WorldMorphism,
+                object_map: HashMap::from([(NodeId(1), NodeId(2))]),
+                relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::In)]),
+                lossy: false,
+            })
+            .unwrap();
+        let ac = store.admit_composed_connection(ab, bc).unwrap();
+        let comp = &store.admitted_connections()[ac];
+        assert_eq!(comp.source(), aw);
+        assert_eq!(comp.target(), cw);
+        assert_eq!(comp.object_map().get(&NodeId(0)), Some(&NodeId(2)));
+        assert_eq!(comp.relation_map().get(&EdgeKind::Equal), Some(&EdgeKind::In));
     }
 }

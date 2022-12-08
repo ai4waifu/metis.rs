@@ -11,7 +11,8 @@ pub use metis_graph::{
     conflict::{Incompatibility, detect_judgment_conflict, query_under_incompatibility},
     connection::{
         AdmittedConnection, CandidateConnection, ConnectionClass, admit_connection, bidirectional_skeleton,
-        refuse_galois_without_proof, transport_relation, transport_relation_asserting, validate_candidate,
+        compose_connections, identity_morphism, refuse_galois_without_proof, transport_relation,
+        transport_relation_asserting, validate_candidate,
     },
     derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
     eval::{
