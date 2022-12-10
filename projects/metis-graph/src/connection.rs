@@ -494,4 +494,53 @@ mod tests {
         let admitted = admit_connection(&ac).unwrap();
         assert_eq!(admitted.target(), c);
     }
+
+    #[test]
+    fn compose_connections_associativity_on_maps() {
+        let a = world(1, 1);
+        let b = world(2, 1);
+        let c = world(3, 1);
+        let d = world(4, 1);
+        let ab = admit_connection(&CandidateConnection {
+            source: a,
+            target: b,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(0), NodeId(1))]),
+            relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::In)]),
+            lossy: false,
+        })
+        .unwrap();
+        let bc = admit_connection(&CandidateConnection {
+            source: b,
+            target: c,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(1), NodeId(2))]),
+            relation_map: HashMap::from([(EdgeKind::In, EdgeKind::Eval)]),
+            lossy: false,
+        })
+        .unwrap();
+        let cd = admit_connection(&CandidateConnection {
+            source: c,
+            target: d,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(2), NodeId(3))]),
+            relation_map: HashMap::from([(EdgeKind::Eval, EdgeKind::Custom(9))]),
+            lossy: false,
+        })
+        .unwrap();
+        let left = {
+            let bc_cd = admit_connection(&compose_connections(&bc, &cd).unwrap()).unwrap();
+            compose_connections(&ab, &bc_cd).unwrap()
+        };
+        let right = {
+            let ab_bc = admit_connection(&compose_connections(&ab, &bc).unwrap()).unwrap();
+            compose_connections(&ab_bc, &cd).unwrap()
+        };
+        assert_eq!(left.source, right.source);
+        assert_eq!(left.target, right.target);
+        assert_eq!(left.object_map, right.object_map);
+        assert_eq!(left.relation_map, right.relation_map);
+        assert_eq!(left.object_map.get(&NodeId(0)), Some(&NodeId(3)));
+        assert_eq!(left.relation_map.get(&EdgeKind::Equal), Some(&EdgeKind::Custom(9)));
+    }
 }
