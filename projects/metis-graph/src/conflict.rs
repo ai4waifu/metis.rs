@@ -34,8 +34,8 @@ pub fn detect_judgment_conflict(
     let right = find_judgment(graph, policy.right_kind, endpoints)?;
     match (left, right) {
         (Some(_), Some(_)) => {
-            let left = AdmittedRelation::bootstrap_unchecked(world, endpoints, 1);
-            let right = AdmittedRelation::bootstrap_unchecked(world, endpoints, 2);
+            let left = AdmittedRelation::mint(world, policy.left_kind, endpoints, 1);
+            let right = AdmittedRelation::mint(world, policy.right_kind, endpoints, 2);
             Ok(Some(ConflictReport { world, left, right }))
         }
         _ => Ok(None),

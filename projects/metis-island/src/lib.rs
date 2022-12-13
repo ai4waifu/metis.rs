@@ -545,6 +545,7 @@ mod tests {
             let st = store.staging_mut().unwrap();
             let a = st.graph.intern_label(b"a").unwrap();
             let b = st.graph.intern_label(b"b").unwrap();
+            st.graph.assert(a, EdgeKind::Equal, b).unwrap();
             (a, b)
         };
         let left = store.accept_staging("Left").unwrap();
@@ -571,7 +572,7 @@ mod tests {
         let cidx = store.admit_world_morphism(candidate).unwrap();
         assert_eq!(store.admitted_connections().len(), 1);
 
-        let rel = AdmittedRelation::bootstrap_unchecked(lw, (a, b), 7);
+        let rel = store.search_admit_equal(left, a, b).unwrap().1.expect("replay Equal");
         let moved = store.transport_along(cidx, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.world(), rw);
         assert_eq!(moved.endpoints(), (a2, b2));
@@ -584,7 +585,10 @@ mod tests {
         store.open_staging("L").unwrap();
         let (a, b) = {
             let st = store.staging_mut().unwrap();
-            (st.graph.intern_label(b"a").unwrap(), st.graph.intern_label(b"b").unwrap())
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            st.graph.assert(a, EdgeKind::Equal, b).unwrap();
+            (a, b)
         };
         let left = store.accept_staging("Left").unwrap();
         store.open_staging("R").unwrap();
@@ -606,7 +610,7 @@ mod tests {
             })
             .unwrap();
         assert!(store.get_mut(right).is_err());
-        let rel = AdmittedRelation::bootstrap_unchecked(lw, (a, b), 9);
+        let rel = store.search_admit_equal(left, a, b).unwrap().1.expect("replay Equal");
         let (moved, edge) = store.transport_and_assert(cidx, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.endpoints(), (a2, b2));
         let (from, kind, to) = store.get(right).unwrap().graph.edge(edge).unwrap();
@@ -623,7 +627,10 @@ mod tests {
         store.open_staging("L").unwrap();
         let (a, b) = {
             let st = store.staging_mut().unwrap();
-            (st.graph.intern_label(b"a").unwrap(), st.graph.intern_label(b"b").unwrap())
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            st.graph.assert(a, EdgeKind::Equal, b).unwrap();
+            (a, b)
         };
         let left = store.accept_staging("Left").unwrap();
         store.open_staging("R").unwrap();
@@ -647,7 +654,7 @@ mod tests {
         let adm = store.seal_world(right).unwrap();
         assert_eq!(adm.world().version, 1);
         assert!(store.is_sealed(right).unwrap());
-        let rel = AdmittedRelation::bootstrap_unchecked(lw, (a, b), 1);
+        let rel = store.search_admit_equal(left, a, b).unwrap().1.expect("replay Equal");
         assert_eq!(
             store.transport_along(cidx, rel, EdgeKind::Equal).unwrap_err(),
             MetisError::ConnectionInvalid

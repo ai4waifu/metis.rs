@@ -83,7 +83,7 @@ pub fn replay_two_premise(
         }
     }
     let tag = fingerprint_instance(world, schema, inst);
-    Ok(AdmittedRelation::bootstrap_unchecked(world, inst.conclusion, tag))
+    Ok(AdmittedRelation::mint(world, schema.conclusion_kind, inst.conclusion, tag))
 }
 
 fn ensure_judgment(graph: &Graph, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Result<(), MetisError> {
@@ -149,6 +149,7 @@ mod tests {
         };
         let adm = replay_two_premise(&g, world(), &schema, &inst).unwrap();
         assert_eq!(adm.endpoints(), (a, c));
+        assert_eq!(adm.kind(), EdgeKind::Equal);
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! Only Core may eventually mint opaque admitted values. Search / CAS / JIT
 //! produce candidates only.
 
-use metis_types::{EdgeId, IslandId, NodeId};
+use metis_types::{EdgeId, EdgeKind, IslandId, NodeId};
 
 /// Four-valued query outcome. Missing a path is [`Unknown`], not negation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -46,23 +46,27 @@ pub struct CandidateRelation {
     pub endpoints: (NodeId, NodeId),
 }
 
-/// Opaque admitted relation. Construction is private — only Core mint paths may create it later.
+/// Opaque admitted relation. Only Core replay paths may mint it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AdmittedRelation {
     world: WorldId,
+    kind: EdgeKind,
     endpoints: (NodeId, NodeId),
     evidence_tag: u64,
 }
 
 impl AdmittedRelation {
-    /// Test / bootstrap helper. Production minting will go through admission replay.
-    #[doc(hidden)]
-    pub fn bootstrap_unchecked(world: WorldId, endpoints: (NodeId, NodeId), evidence_tag: u64) -> Self {
-        Self { world, endpoints, evidence_tag }
+    /// Core-internal mint. External crates must go through replay, not this constructor.
+    pub(crate) fn mint(world: WorldId, kind: EdgeKind, endpoints: (NodeId, NodeId), evidence_tag: u64) -> Self {
+        Self { world, kind, endpoints, evidence_tag }
     }
 
     pub const fn world(self) -> WorldId {
         self.world
+    }
+
+    pub const fn kind(self) -> EdgeKind {
+        self.kind
     }
 
     pub const fn endpoints(self) -> (NodeId, NodeId) {
@@ -82,8 +86,7 @@ pub struct AdmittedWorld {
 }
 
 impl AdmittedWorld {
-    #[doc(hidden)]
-    pub fn bootstrap_unchecked(world: WorldId, evidence_tag: u64) -> Self {
+    pub(crate) fn mint(world: WorldId, evidence_tag: u64) -> Self {
         Self { world, evidence_tag }
     }
 
@@ -93,7 +96,7 @@ impl AdmittedWorld {
             .version
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add(u64::from(world.island.get()));
-        Self { world, evidence_tag: tag }
+        Self::mint(world, tag)
     }
 
     pub const fn world(self) -> WorldId {
@@ -127,6 +130,7 @@ pub const fn unknown_if_missing(found: bool) -> QueryStatus {
 mod tests {
     use super::*;
     use core::num::NonZeroU32;
+    use metis_types::EdgeKind;
 
     #[test]
     fn missing_is_unknown_not_refuted() {
@@ -137,9 +141,19 @@ mod tests {
     #[test]
     fn admitted_is_opaque_but_readable() {
         let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
-        let a = AdmittedRelation::bootstrap_unchecked(w, (NodeId(0), NodeId(1)), 7);
+        let a = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 7);
         assert_eq!(a.world(), w);
+        assert_eq!(a.kind(), EdgeKind::Equal);
         assert_eq!(a.evidence_tag(), 7);
+    }
+
+    #[test]
+    fn equal_and_in_tokens_are_distinct() {
+        let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
+        let eq = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1);
+        let mem = AdmittedRelation::mint(w, EdgeKind::In, (NodeId(0), NodeId(1)), 1);
+        assert_ne!(eq, mem);
+        assert_eq!(eq.endpoints(), mem.endpoints());
     }
 
     #[test]

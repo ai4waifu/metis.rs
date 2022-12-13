@@ -75,12 +75,12 @@ mod tests {
     #[test]
     fn compose_requires_shared_endpoint() {
         let w = world(1);
-        let a = AdmittedRelation::bootstrap_unchecked(w, (NodeId(0), NodeId(1)), 1);
-        let b = AdmittedRelation::bootstrap_unchecked(w, (NodeId(1), NodeId(2)), 2);
+        let a = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1);
+        let b = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(1), NodeId(2)), 2);
         let c = compose_equal_relations(a, b).unwrap();
         assert_eq!(c.endpoints, (NodeId(0), NodeId(2)));
 
-        let bad = AdmittedRelation::bootstrap_unchecked(w, (NodeId(3), NodeId(4)), 3);
+        let bad = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(3), NodeId(4)), 3);
         assert_eq!(compose_equal_relations(a, bad).unwrap_err(), MetisError::ProofInvalid);
     }
 

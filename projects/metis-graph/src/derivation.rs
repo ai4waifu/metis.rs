@@ -26,7 +26,7 @@ pub fn replay_equal_derivation(graph: &Graph, diagram: &DerivationDiagram) -> Re
     let (start, end) = diagram.conclusion;
     verify_equal_steps(graph, start, end, &diagram.steps)?;
     let tag = fingerprint_diagram(diagram);
-    Ok(AdmittedRelation::bootstrap_unchecked(diagram.world, diagram.conclusion, tag))
+    Ok(AdmittedRelation::mint(diagram.world, metis_types::EdgeKind::Equal, diagram.conclusion, tag))
 }
 
 /// Search then replay: missing path → [`QueryStatus::Unknown`] (no admission).
@@ -113,6 +113,7 @@ mod tests {
         assert_eq!(st, QueryStatus::Proven);
         let adm = adm.unwrap();
         assert_eq!(adm.world(), w);
+        assert_eq!(adm.kind(), EdgeKind::Equal);
         assert_eq!(adm.endpoints(), (a, b));
     }
 
