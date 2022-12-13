@@ -46,19 +46,38 @@ pub struct CandidateRelation {
     pub endpoints: (NodeId, NodeId),
 }
 
-/// Opaque admitted relation. Only Core replay paths may mint it.
+/// Provenance lane for an opaque relation token (Living `10` trusted-path gate).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum JudgmentLane {
+    /// Minted by single-world derivation replay. Bootstrap candidate for the trusted path.
+    SingleWorldReplay,
+    /// Minted by connection transport without a transport-preservation witness.
+    /// Outer only. Must not be treated as `QueryStatus::Proven` for CVO.
+    BootstrapOuterTransport,
+    /// Conflict-report scaffolding. Not a positive Inner membership witness.
+    BootstrapConflictReport,
+}
+
+/// Opaque admitted relation. Only Core mint paths may create it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AdmittedRelation {
     world: WorldId,
     kind: EdgeKind,
     endpoints: (NodeId, NodeId),
     evidence_tag: u64,
+    lane: JudgmentLane,
 }
 
 impl AdmittedRelation {
     /// Core-internal mint. External crates must go through replay, not this constructor.
-    pub(crate) fn mint(world: WorldId, kind: EdgeKind, endpoints: (NodeId, NodeId), evidence_tag: u64) -> Self {
-        Self { world, kind, endpoints, evidence_tag }
+    pub(crate) fn mint(
+        world: WorldId,
+        kind: EdgeKind,
+        endpoints: (NodeId, NodeId),
+        evidence_tag: u64,
+        lane: JudgmentLane,
+    ) -> Self {
+        Self { world, kind, endpoints, evidence_tag, lane }
     }
 
     pub const fn world(self) -> WorldId {
@@ -75,6 +94,15 @@ impl AdmittedRelation {
 
     pub const fn evidence_tag(self) -> u64 {
         self.evidence_tag
+    }
+
+    pub const fn lane(self) -> JudgmentLane {
+        self.lane
+    }
+
+    /// True only for single-world replay tokens. Transport / conflict lanes stay Outer.
+    pub const fn is_trusted_path_candidate(self) -> bool {
+        matches!(self.lane, JudgmentLane::SingleWorldReplay)
     }
 }
 
@@ -141,19 +169,51 @@ mod tests {
     #[test]
     fn admitted_is_opaque_but_readable() {
         let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
-        let a = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 7);
+        let a = AdmittedRelation::mint(
+            w,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            7,
+            JudgmentLane::SingleWorldReplay,
+        );
         assert_eq!(a.world(), w);
         assert_eq!(a.kind(), EdgeKind::Equal);
         assert_eq!(a.evidence_tag(), 7);
+        assert!(a.is_trusted_path_candidate());
     }
 
     #[test]
     fn equal_and_in_tokens_are_distinct() {
         let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
-        let eq = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1);
-        let mem = AdmittedRelation::mint(w, EdgeKind::In, (NodeId(0), NodeId(1)), 1);
+        let eq = AdmittedRelation::mint(
+            w,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            1,
+            JudgmentLane::SingleWorldReplay,
+        );
+        let mem = AdmittedRelation::mint(
+            w,
+            EdgeKind::In,
+            (NodeId(0), NodeId(1)),
+            1,
+            JudgmentLane::SingleWorldReplay,
+        );
         assert_ne!(eq, mem);
         assert_eq!(eq.endpoints(), mem.endpoints());
+    }
+
+    #[test]
+    fn transport_lane_is_not_trusted_path_candidate() {
+        let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
+        let t = AdmittedRelation::mint(
+            w,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            1,
+            JudgmentLane::BootstrapOuterTransport,
+        );
+        assert!(!t.is_trusted_path_candidate());
     }
 
     #[test]

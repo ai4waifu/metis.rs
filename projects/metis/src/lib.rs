@@ -5,14 +5,15 @@ pub use metis_compile::{LoweringResult, compile_declarations, lower_module, pars
 pub use metis_graph::{
     EdgePayload, Graph, NodePayload, Step,
     admission::{
-        AdmittedRelation, AdmittedWorld, CandidateRelation, ConflictReport, ObservationBoundary, QueryStatus, WorldId,
-        unknown_if_missing,
+        AdmittedRelation, AdmittedWorld, CandidateRelation, ConflictReport, JudgmentLane, ObservationBoundary,
+        QueryStatus, WorldId, unknown_if_missing,
     },
     conflict::{Incompatibility, detect_judgment_conflict, query_under_incompatibility},
     connection::{
         AdmittedConnection, CandidateConnection, ConnectionClass, admit_connection, bidirectional_skeleton,
-        compose_connections, identity_morphism, refuse_galois_without_proof, transport_relation,
-        transport_relation_asserting, validate_candidate,
+        bootstrap_transport_relation, bootstrap_transport_relation_asserting, compose_connections,
+        identity_morphism, refuse_galois_without_proof, transport_relation, transport_relation_asserting,
+        validate_candidate,
     },
     derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
     eval::{

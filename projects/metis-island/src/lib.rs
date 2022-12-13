@@ -327,10 +327,20 @@ impl IslandStore {
         self.admit_world_morphism(candidate)
     }
 
-    /// Transport an admitted relation along an admitted connection index.
+    /// Bootstrap Outer transport along an admitted connection index.
     ///
-    /// Target world must not be sealed (no further admissions into a closed observation).
+    /// Not Living `10` trusted path. Target world must not be sealed.
     pub fn transport_along(
+        &self,
+        connection_index: usize,
+        relation: AdmittedRelation,
+        kind: EdgeKind,
+    ) -> Result<AdmittedRelation, MetisError> {
+        self.bootstrap_transport_along(connection_index, relation, kind)
+    }
+
+    /// Explicit bootstrap alias for [`Self::transport_along`].
+    pub fn bootstrap_transport_along(
         &self,
         connection_index: usize,
         relation: AdmittedRelation,
@@ -345,11 +355,20 @@ impl IslandStore {
         transport_relation(conn, relation, kind)
     }
 
-    /// Transport and write the mapped judgment into the target island graph.
+    /// Bootstrap Outer transport that writes a mapped judgment into the target graph.
     ///
-    /// Core-only mutation of an accepted (but unsealed) world. Ordinary [`Self::get_mut`]
-    /// still rejects accepted islands.
+    /// Demo helper only. Does **not** establish Inner membership for CVO.
     pub fn transport_and_assert(
+        &mut self,
+        connection_index: usize,
+        relation: AdmittedRelation,
+        kind: EdgeKind,
+    ) -> Result<(AdmittedRelation, EdgeId), MetisError> {
+        self.bootstrap_transport_and_assert(connection_index, relation, kind)
+    }
+
+    /// Explicit bootstrap alias for [`Self::transport_and_assert`].
+    pub fn bootstrap_transport_and_assert(
         &mut self,
         connection_index: usize,
         relation: AdmittedRelation,

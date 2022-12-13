@@ -6,7 +6,7 @@
 
 use metis_types::{EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, WorldId};
+use super::admission::{AdmittedRelation, JudgmentLane, WorldId};
 use super::Graph;
 
 /// Pattern for one premise judgment: `kind(from, to)` with optional fixed endpoints.
@@ -83,7 +83,13 @@ pub fn replay_two_premise(
         }
     }
     let tag = fingerprint_instance(world, schema, inst);
-    Ok(AdmittedRelation::mint(world, schema.conclusion_kind, inst.conclusion, tag))
+    Ok(AdmittedRelation::mint(
+        world,
+        schema.conclusion_kind,
+        inst.conclusion,
+        tag,
+        JudgmentLane::SingleWorldReplay,
+    ))
 }
 
 fn ensure_judgment(graph: &Graph, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Result<(), MetisError> {

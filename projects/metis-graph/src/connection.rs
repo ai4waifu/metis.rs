@@ -3,12 +3,16 @@
 //! A connection is first a **theory / world morphism**. Surface `A <-> B` only yields a
 //! bidirectional skeleton. Galois / isomorphism / adjunction require extra evidence and
 //! must not be inferred from the bidirectional keyword alone.
+//!
+//! **Trusted-path gate (Living `10` / `12`)**: structural M-Link admission and transport APIs
+//! below are **bootstrap Outer** until a transport-preservation witness (`pi_T`) exists.
+//! They must not mint Living-10 trusted Inner judgments for CVO.
 
 use std::collections::HashMap;
 
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, WorldId};
+use super::admission::{AdmittedRelation, JudgmentLane, WorldId};
 
 /// Declared strength of a connection candidate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -143,12 +147,21 @@ pub fn admit_connection(c: &CandidateConnection) -> Result<AdmittedConnection, M
     }
 }
 
-/// Transport an admitted relation along an admitted connection.
+/// Bootstrap Outer transport of an opaque relation along an admitted connection.
 ///
-/// Requires the relation's world to match the connection source, both endpoints in
-/// `object_map`, and `kind` present in `relation_map`. Does **not** write judgment edges
-/// into the target graph — it only mints a transported opaque relation.
+/// Not part of the Living `10` trusted path. Does **not** establish
+/// `W; empty ⊢ e : J` in the target world and does **not** write a judgment edge
+/// into the target graph — it only mints a transported Outer token.
 pub fn transport_relation(
+    conn: &AdmittedConnection,
+    relation: AdmittedRelation,
+    kind: EdgeKind,
+) -> Result<AdmittedRelation, MetisError> {
+    bootstrap_transport_relation(conn, relation, kind)
+}
+
+/// Explicit bootstrap alias for [`transport_relation`].
+pub fn bootstrap_transport_relation(
     conn: &AdmittedConnection,
     relation: AdmittedRelation,
     kind: EdgeKind,
@@ -157,11 +170,21 @@ pub fn transport_relation(
     Ok(adm)
 }
 
-/// Transport and assert the mapped judgment edge into `target`.
+/// Bootstrap Outer transport that also asserts a mapped judgment edge into `target`.
 ///
-/// Uses the **target** kind from `relation_map`. Caller must ensure `target` belongs to
-/// `conn.target` and that the observation boundary is still open.
+/// Demo / staging helper only. The written edge is **not** Inner membership under
+/// Living `10` until a transport-preservation theorem is available.
 pub fn transport_relation_asserting(
+    target: &mut super::Graph,
+    conn: &AdmittedConnection,
+    relation: AdmittedRelation,
+    kind: EdgeKind,
+) -> Result<(AdmittedRelation, EdgeId), MetisError> {
+    bootstrap_transport_relation_asserting(target, conn, relation, kind)
+}
+
+/// Explicit bootstrap alias for [`transport_relation_asserting`].
+pub fn bootstrap_transport_relation_asserting(
     target: &mut super::Graph,
     conn: &AdmittedConnection,
     relation: AdmittedRelation,
@@ -188,7 +211,13 @@ fn transport_mapped(
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add(relation.evidence_tag())
             .wrapping_add(kind_tag(kind));
-        let adm = AdmittedRelation::mint(conn.target, kind, relation.endpoints(), tag);
+        let adm = AdmittedRelation::mint(
+            conn.target,
+            kind,
+            relation.endpoints(),
+            tag,
+            JudgmentLane::BootstrapOuterTransport,
+        );
         return Ok((kind, adm));
     }
     let tgt_kind = *conn.relation_map.get(&kind).ok_or(MetisError::ConnectionInvalid)?;
@@ -200,7 +229,13 @@ fn transport_mapped(
         .wrapping_mul(0x9E37_79B9_7F4A_7C15)
         .wrapping_add(relation.evidence_tag())
         .wrapping_add(kind_tag(kind));
-    let adm = AdmittedRelation::mint(conn.target, tgt_kind, (left_t, right_t), tag);
+    let adm = AdmittedRelation::mint(
+        conn.target,
+        tgt_kind,
+        (left_t, right_t),
+        tag,
+        JudgmentLane::BootstrapOuterTransport,
+    );
     Ok((tgt_kind, adm))
 }
 
@@ -399,12 +434,26 @@ mod tests {
             lossy: false,
         };
         let conn = admit_connection(&morph).unwrap();
-        let rel = AdmittedRelation::mint(a, EdgeKind::Equal, (NodeId(0), NodeId(1)), 42);
+        let rel = AdmittedRelation::mint(
+            a,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            42,
+            JudgmentLane::SingleWorldReplay,
+        );
         let moved = transport_relation(&conn, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.world(), b);
         assert_eq!(moved.endpoints(), (NodeId(10), NodeId(11)));
+        assert!(!moved.is_trusted_path_candidate());
+        assert_eq!(moved.lane(), JudgmentLane::BootstrapOuterTransport);
 
-        let wrong_world = AdmittedRelation::mint(b, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1);
+        let wrong_world = AdmittedRelation::mint(
+            b,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            1,
+            JudgmentLane::SingleWorldReplay,
+        );
         assert_eq!(
             transport_relation(&conn, wrong_world, EdgeKind::Equal).unwrap_err(),
             MetisError::ConnectionInvalid
@@ -432,7 +481,13 @@ mod tests {
             lossy: false,
         };
         let conn = admit_connection(&morph).unwrap();
-        let rel = AdmittedRelation::mint(a, EdgeKind::Equal, (NodeId(0), NodeId(1)), 3);
+        let rel = AdmittedRelation::mint(
+            a,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            3,
+            JudgmentLane::SingleWorldReplay,
+        );
         let (moved, edge) = transport_relation_asserting(&mut tgt, &conn, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.endpoints(), (t0, t1));
         let (from, kind, to) = tgt.edge(edge).unwrap();
@@ -446,7 +501,13 @@ mod tests {
         let id = admit_connection(&identity_morphism(w)).unwrap();
         assert_eq!(id.source(), w);
         assert_eq!(id.target(), w);
-        let rel = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(3), NodeId(4)), 1);
+        let rel = AdmittedRelation::mint(
+            w,
+            EdgeKind::Equal,
+            (NodeId(3), NodeId(4)),
+            1,
+            JudgmentLane::SingleWorldReplay,
+        );
         let moved = transport_relation(&id, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.endpoints(), (NodeId(3), NodeId(4)));
         assert_eq!(moved.world(), w);

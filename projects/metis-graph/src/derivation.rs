@@ -6,7 +6,7 @@
 
 use metis_types::{MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, QueryStatus, WorldId};
+use super::admission::{AdmittedRelation, JudgmentLane, QueryStatus, WorldId};
 use super::{Graph, Step};
 
 /// Degenerate derivation diagram: ordered EQ steps under a fixed world version.
@@ -26,7 +26,13 @@ pub fn replay_equal_derivation(graph: &Graph, diagram: &DerivationDiagram) -> Re
     let (start, end) = diagram.conclusion;
     verify_equal_steps(graph, start, end, &diagram.steps)?;
     let tag = fingerprint_diagram(diagram);
-    Ok(AdmittedRelation::mint(diagram.world, metis_types::EdgeKind::Equal, diagram.conclusion, tag))
+    Ok(AdmittedRelation::mint(
+        diagram.world,
+        metis_types::EdgeKind::Equal,
+        diagram.conclusion,
+        tag,
+        JudgmentLane::SingleWorldReplay,
+    ))
 }
 
 /// Search then replay: missing path → [`QueryStatus::Unknown`] (no admission).
