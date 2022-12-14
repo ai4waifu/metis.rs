@@ -217,13 +217,16 @@ impl IslandStore {
 
     /// Close the observation boundary for an accepted world version.
     ///
-    /// Does **not** call [`Graph::seal`]. Idempotent. Version is unchanged.
+    /// Also freezes the island graph snapshot (`Graph::freeze_snapshot`) so Core
+    /// mutation paths cannot write judgment edges. Does **not** call [`Graph::seal`],
+    /// which would drop Metis cons tables. Idempotent. Version is unchanged.
     pub fn seal_world(&mut self, island: IslandId) -> Result<AdmittedWorld, MetisError> {
         let entry = self.islands.get_mut(&island).ok_or(MetisError::IslandNotFound)?;
         if !entry.accepted {
             return Err(MetisError::InvalidHandle);
         }
         entry.observation = ObservationBoundary::Sealed;
+        entry.graph.freeze_snapshot();
         self.admitted_world_of(island).ok_or(MetisError::InvalidHandle)
     }
 
@@ -673,6 +676,7 @@ mod tests {
         let adm = store.seal_world(right).unwrap();
         assert_eq!(adm.world().version, 1);
         assert!(store.is_sealed(right).unwrap());
+        assert!(store.get(right).unwrap().graph.is_snapshot_frozen());
         let rel = store.search_admit_equal(left, a, b).unwrap().1.expect("replay Equal");
         assert_eq!(
             store.transport_along(cidx, rel, EdgeKind::Equal).unwrap_err(),

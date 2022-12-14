@@ -83,7 +83,7 @@ fn metis_semantics() -> GraphSemantics {
     }
 }
 
-/// Mutable working graph (staging or accepted island body before seal).
+/// Mutable working graph (staging or accepted island body before snapshot freeze).
 pub struct Graph {
     builder: GraphBuilder<NodePayload, EdgePayload>,
     cons: HashMap<Vec<OutKey>, NodeId>,
@@ -91,6 +91,8 @@ pub struct Graph {
     label_of: HashMap<NodeId, Vec<u8>>,
     edge_meta: HashMap<EdgeId, EdgePayload>,
     heap: Rc<RefCell<GcHeap>>,
+    /// When true, mutating APIs reject. Query / replay stay available (Living `10` snapshot).
+    snapshot_frozen: bool,
 }
 
 impl Default for Graph {
@@ -112,11 +114,30 @@ impl Graph {
             label_of: HashMap::new(),
             edge_meta: HashMap::new(),
             heap,
+            snapshot_frozen: false,
         }
     }
 
     pub fn heap(&self) -> &Rc<RefCell<GcHeap>> {
         &self.heap
+    }
+
+    /// Freeze mutations while keeping Metis cons / judgment tables queryable.
+    ///
+    /// Distinct from [`Self::seal`], which drops Metis tables into an ordinary immutable graph.
+    pub fn freeze_snapshot(&mut self) {
+        self.snapshot_frozen = true;
+    }
+
+    pub const fn is_snapshot_frozen(&self) -> bool {
+        self.snapshot_frozen
+    }
+
+    fn ensure_mutable(&self) -> Result<(), MetisError> {
+        if self.snapshot_frozen {
+            return Err(MetisError::GraphRejected);
+        }
+        Ok(())
     }
 
     /// Underlying athena builder (ordinary discrete graph).
@@ -161,6 +182,7 @@ impl Graph {
 
     /// Intern a named atom. Same bytes → same [`NodeId`].
     pub fn intern_label(&mut self, name: impl AsRef<[u8]>) -> Result<NodeId, MetisError> {
+        self.ensure_mutable()?;
         let key = name.as_ref().to_vec();
         if let Some(id) = self.labels.get(&key).copied() {
             return Ok(id);
@@ -173,6 +195,7 @@ impl Graph {
 
     /// Intern a node by its **structural** outgoing multiset (extensional hash-cons).
     pub fn intern(&mut self, outs: &[(EdgeKind, NodeId)]) -> Result<NodeId, MetisError> {
+        self.ensure_mutable()?;
         for (_kind, to) in outs {
             self.ensure_known(*to)?;
         }
@@ -196,6 +219,7 @@ impl Graph {
 
     /// Assert a judgment edge. Does not change structural identity of `from`.
     pub fn assert(&mut self, from: NodeId, kind: EdgeKind, to: NodeId) -> Result<EdgeId, MetisError> {
+        self.ensure_mutable()?;
         self.ensure_known(from)?;
         self.ensure_known(to)?;
         self.add_base_edge(from, to, EdgePayload::judgment(kind))
@@ -428,5 +452,18 @@ mod tests {
         let p = g.edge_payload(e).unwrap();
         assert_eq!(p, EdgePayload::judgment(EdgeKind::Equal));
         assert!(!p.structural);
+    }
+
+    #[test]
+    fn freeze_snapshot_blocks_mutation_keeps_query() {
+        let mut g = Graph::new();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        g.assert(a, EdgeKind::Equal, b).unwrap();
+        g.freeze_snapshot();
+        assert!(g.is_snapshot_frozen());
+        assert_eq!(g.assert(a, EdgeKind::Equal, b).unwrap_err(), MetisError::GraphRejected);
+        assert_eq!(g.intern_label(b"c").unwrap_err(), MetisError::GraphRejected);
+        assert!(g.find_equal_path(a, b).unwrap().is_some());
     }
 }
