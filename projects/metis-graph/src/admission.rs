@@ -106,6 +106,18 @@ impl AdmittedRelation {
     }
 }
 
+/// Map an opaque token to query status for CVO / facade consumers.
+///
+/// Only [`JudgmentLane::SingleWorldReplay`] may surface as [`QueryStatus::Proven`].
+/// Bootstrap transport / conflict tokens stay [`QueryStatus::Unknown`].
+pub const fn query_status_of_admitted(rel: AdmittedRelation) -> QueryStatus {
+    if rel.is_trusted_path_candidate() {
+        QueryStatus::Proven
+    } else {
+        QueryStatus::Unknown
+    }
+}
+
 /// Opaque admitted world (accepted island version). Only Core mint paths may create it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AdmittedWorld {
@@ -214,6 +226,20 @@ mod tests {
             JudgmentLane::BootstrapOuterTransport,
         );
         assert!(!t.is_trusted_path_candidate());
+        assert_eq!(query_status_of_admitted(t), QueryStatus::Unknown);
+    }
+
+    #[test]
+    fn replay_lane_maps_to_proven() {
+        let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
+        let r = AdmittedRelation::mint(
+            w,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            1,
+            JudgmentLane::SingleWorldReplay,
+        );
+        assert_eq!(query_status_of_admitted(r), QueryStatus::Proven);
     }
 
     #[test]

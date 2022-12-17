@@ -6,7 +6,7 @@ pub use metis_graph::{
     EdgePayload, Graph, NodePayload, Step,
     admission::{
         AdmittedRelation, AdmittedWorld, CandidateRelation, ConflictReport, JudgmentLane, ObservationBoundary,
-        QueryStatus, WorldId, unknown_if_missing,
+        QueryStatus, WorldId, query_status_of_admitted, unknown_if_missing,
     },
     conflict::{Incompatibility, detect_judgment_conflict, query_under_incompatibility},
     connection::{
