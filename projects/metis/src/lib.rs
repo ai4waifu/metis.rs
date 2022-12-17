@@ -20,6 +20,10 @@ pub use metis_graph::{
         EvalAttachment, EvalCertificateKind, eval_is_not_equal, eval_query_status, form_eval_attachment,
         form_eval_candidate, may_request_admission, refuse_eval_as_equal,
     },
+    evidence::{
+        CheckedDerivation, Evidence, JudgmentAtom, concluded_judgment, evidence_from_equal_steps, height,
+        replay_checked_derivation, replay_evidence, validate_finite,
+    },
     relation::{admit_equal_relation, compose_equal_relations, form_relation},
     rules::{RelationSignature, RuleTable},
     transform::{PremisePattern, TransformationInstance, TransformationSchema, replay_two_premise},

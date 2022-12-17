@@ -4,7 +4,7 @@
 //!   [`EdgePayload`] (not CAS M-Graph).
 //! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
 //! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
-//! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`transform`], [`conflict`], [`rules`], [`eval`].
+//! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`evidence`], [`transform`], [`conflict`], [`rules`], [`eval`].
 
 use std::{
     cell::RefCell,
@@ -24,6 +24,7 @@ pub mod conflict;
 pub mod connection;
 pub mod derivation;
 pub mod eval;
+pub mod evidence;
 pub mod payload;
 pub mod relation;
 pub mod rules;
