@@ -1,12 +1,13 @@
 //! Derivation diagram replay (Living Core constitution, first slice).
 //!
 //! Full diagrams are DAGs. This foundation accepts the **degenerate** form used by EQ:
-//! an ordered list of judgment `Equal` steps. Search may propose a diagram; only replay
-//! can mint [`AdmittedRelation`].
+//! an ordered list of judgment `Equal` steps, encoded into [`crate::evidence::Evidence`]
+//! before minting [`AdmittedRelation`]. Search may propose a diagram; only replay can mint.
 
 use metis_types::{MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, JudgmentLane, QueryStatus, WorldId};
+use super::admission::{AdmittedRelation, QueryStatus, WorldId, query_status_of_admitted};
+use super::evidence::{evidence_from_equal_steps, replay_evidence};
 use super::{Graph, Step};
 
 /// Degenerate derivation diagram: ordered EQ steps under a fixed world version.
@@ -21,18 +22,13 @@ pub struct DerivationDiagram {
 
 /// Replay a diagram against `graph`. On success, mint an opaque [`AdmittedRelation`].
 ///
+/// Encodes steps into Living `10` evidence (`gen` / `app`) and replays under empty `Γ`.
 /// Does not invent edges. Tampered steps / endpoints fail with [`MetisError::ProofInvalid`].
 pub fn replay_equal_derivation(graph: &Graph, diagram: &DerivationDiagram) -> Result<AdmittedRelation, MetisError> {
     let (start, end) = diagram.conclusion;
     verify_equal_steps(graph, start, end, &diagram.steps)?;
-    let tag = fingerprint_diagram(diagram);
-    Ok(AdmittedRelation::mint(
-        diagram.world,
-        metis_types::EdgeKind::Equal,
-        diagram.conclusion,
-        tag,
-        JudgmentLane::SingleWorldReplay,
-    ))
+    let evidence = evidence_from_equal_steps(graph, start, end, &diagram.steps)?;
+    replay_evidence(graph, diagram.world, &evidence, &[])
 }
 
 /// Search then replay: missing path → [`QueryStatus::Unknown`] (no admission).
@@ -45,13 +41,13 @@ pub fn search_and_admit_equal(
     if left == right {
         let diagram = DerivationDiagram { world, conclusion: (left, right), steps: Vec::new() };
         let admitted = replay_equal_derivation(graph, &diagram)?;
-        return Ok((QueryStatus::Proven, Some(admitted)));
+        return Ok((query_status_of_admitted(admitted), Some(admitted)));
     }
     match graph.find_equal_path(left, right)? {
         Some(steps) => {
             let diagram = DerivationDiagram { world, conclusion: (left, right), steps };
             let admitted = replay_equal_derivation(graph, &diagram)?;
-            Ok((QueryStatus::Proven, Some(admitted)))
+            Ok((query_status_of_admitted(admitted), Some(admitted)))
         }
         None => Ok((QueryStatus::Unknown, None)),
     }
@@ -75,27 +71,6 @@ fn verify_equal_steps(graph: &Graph, start: NodeId, end: NodeId, steps: &[Step])
         cur = nxt;
     }
     if cur == end { Ok(()) } else { Err(MetisError::ProofInvalid) }
-}
-
-fn fingerprint_diagram(diagram: &DerivationDiagram) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for x in [
-        diagram.world.island.get() as u64,
-        diagram.world.version,
-        diagram.conclusion.0 .0,
-        diagram.conclusion.1 .0,
-        diagram.steps.len() as u64,
-    ] {
-        h ^= x;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    for step in &diagram.steps {
-        h ^= step.edge.0;
-        h = h.wrapping_mul(0x100000001b3);
-        h ^= u64::from(step.forward);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    h
 }
 
 #[cfg(test)]

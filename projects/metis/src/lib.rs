@@ -24,6 +24,7 @@ pub use metis_graph::{
         CheckedDerivation, Evidence, JudgmentAtom, concluded_judgment, evidence_from_equal_steps, height,
         replay_checked_derivation, replay_evidence, validate_finite,
     },
+    inner::InnerTable,
     relation::{admit_equal_relation, compose_equal_relations, form_relation},
     rules::{RelationSignature, RuleTable},
     transform::{PremisePattern, TransformationInstance, TransformationSchema, replay_two_premise},

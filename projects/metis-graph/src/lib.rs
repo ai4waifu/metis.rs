@@ -25,6 +25,7 @@ pub mod connection;
 pub mod derivation;
 pub mod eval;
 pub mod evidence;
+pub mod inner;
 pub mod payload;
 pub mod relation;
 pub mod rules;

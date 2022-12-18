@@ -16,6 +16,7 @@ use metis_graph::connection::{
     transport_relation, transport_relation_asserting, validate_candidate,
 };
 use metis_graph::eval::{EvalAttachment, eval_query_status};
+use metis_graph::inner::InnerTable;
 use metis_graph::rules::RuleTable;
 use metis_graph::transform::TransformationSchema;
 use metis_graph::Graph;
@@ -76,6 +77,8 @@ pub struct IslandStore {
     eval_attachments: Vec<EvalAttachment>,
     /// Islands quarantined after an explicit local conflict (does not cascade).
     quarantined: HashSet<IslandId>,
+    /// Bootstrap `Inner(W)` projection: SingleWorldReplay judgments only.
+    inner: InnerTable,
 }
 
 impl IslandStore {
@@ -436,25 +439,50 @@ impl IslandStore {
 
     /// Search-and-admit EQ under the island's current [`WorldId`].
     pub fn search_admit_equal(
-        &self,
+        &mut self,
         island: IslandId,
         left: metis_types::NodeId,
         right: metis_types::NodeId,
     ) -> Result<(metis_graph::admission::QueryStatus, Option<metis_graph::admission::AdmittedRelation>), MetisError> {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
-        metis_graph::derivation::search_and_admit_equal(&entry.graph, world, left, right)
+        let (status, admitted) =
+            metis_graph::derivation::search_and_admit_equal(&entry.graph, world, left, right)?;
+        if let Some(rel) = admitted {
+            self.inner.insert(rel)?;
+            Ok((status, Some(rel)))
+        } else {
+            Ok((status, None))
+        }
+    }
+
+    /// Query bootstrap `Inner(W)` membership for `Equal(left, right)` under the island world.
+    pub fn query_inner_equal(
+        &self,
+        island: IslandId,
+        left: metis_types::NodeId,
+        right: metis_types::NodeId,
+    ) -> Result<QueryStatus, MetisError> {
+        let entry = self.get(island)?;
+        let world = entry.world_id(island);
+        Ok(self.inner.query(world, EdgeKind::Equal, (left, right)))
+    }
+
+    pub fn inner(&self) -> &InnerTable {
+        &self.inner
     }
 
     /// Admit an EQ [`CandidateRelation`] under the island's current world (Living `admit_relation`).
     pub fn admit_equal_candidate(
-        &self,
+        &mut self,
         island: IslandId,
         candidate: metis_graph::admission::CandidateRelation,
     ) -> Result<metis_graph::admission::AdmittedRelation, MetisError> {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
-        metis_graph::relation::admit_equal_relation(&entry.graph, world, candidate)
+        let rel = metis_graph::relation::admit_equal_relation(&entry.graph, world, candidate)?;
+        self.inner.insert(rel)?;
+        Ok(rel)
     }
 
     pub fn is_quarantined(&self, island: IslandId) -> bool {
@@ -799,6 +827,10 @@ mod tests {
         let (st, adm) = store.search_admit_equal(id, a, b).unwrap();
         assert_eq!(st, metis_graph::admission::QueryStatus::Proven);
         assert!(adm.is_some());
+        assert_eq!(
+            store.query_inner_equal(id, a, b).unwrap(),
+            metis_graph::admission::QueryStatus::Proven
+        );
     }
 
     #[test]
