@@ -27,7 +27,9 @@ pub use metis_graph::{
     inner::InnerTable,
     relation::{admit_equal_relation, compose_equal_relations, form_relation},
     rules::{RelationSignature, RuleTable},
-    transform::{PremisePattern, TransformationInstance, TransformationSchema, replay_two_premise},
+    transform::{
+        PremisePattern, TransformationInstance, TransformationSchema, evidence_from_two_premise, replay_two_premise,
+    },
 };
 
 pub use metis_island::{Island, IslandStore};

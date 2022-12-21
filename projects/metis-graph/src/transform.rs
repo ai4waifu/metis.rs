@@ -2,11 +2,12 @@
 //!
 //! A transformation is not a method on objects. It is:
 //! premise relation patterns → boundary-preserving rewrite → conclusion pattern.
-//! This module ships the **two-premise** skeleton used by the first Core acceptance slice.
+//! Two-premise replay encodes into [`crate::evidence::Evidence::App`] before minting.
 
-use metis_types::{EdgeKind, MetisError, NodeId};
+use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, JudgmentLane, WorldId};
+use super::admission::{AdmittedRelation, WorldId};
+use super::evidence::{Evidence, JudgmentAtom, replay_evidence};
 use super::Graph;
 
 /// Pattern for one premise judgment: `kind(from, to)` with optional fixed endpoints.
@@ -60,9 +61,36 @@ impl TransformationSchema {
     }
 }
 
+/// Encode a two-premise instance as `app(ρ, [gen(e₁), gen(e₂)], J)`.
+pub fn evidence_from_two_premise(
+    graph: &Graph,
+    schema: &TransformationSchema,
+    inst: &TransformationInstance,
+) -> Result<Evidence, MetisError> {
+    if !schema.matches_instance(inst) {
+        return Err(MetisError::ProofInvalid);
+    }
+    let edge_a = find_judgment_edge(graph, schema.premise_a.kind, inst.premise_a)?;
+    let edge_b = find_judgment_edge(graph, schema.premise_b.kind, inst.premise_b)?;
+    if schema.name == "equal_transitivity" {
+        let (x, z) = inst.conclusion;
+        if graph.find_equal_path(x, z)?.is_none() {
+            return Err(MetisError::ProofInvalid);
+        }
+    }
+    Ok(Evidence::App {
+        rule: schema.name.clone(),
+        premises: vec![Evidence::Gen { edge: edge_a }, Evidence::Gen { edge: edge_b }],
+        conclusion: JudgmentAtom {
+            kind: schema.conclusion_kind,
+            endpoints: inst.conclusion,
+        },
+    })
+}
+
 /// Replay a two-premise instance: both premises must already be judgment edges in `graph`.
 ///
-/// On success, mints an [`AdmittedRelation`] for the conclusion under `world`.
+/// Encodes into Living `10` evidence and replays under empty `Γ`.
 /// Does **not** insert the conclusion edge — admission is epistemic, not mutation.
 pub fn replay_two_premise(
     graph: &Graph,
@@ -70,63 +98,26 @@ pub fn replay_two_premise(
     schema: &TransformationSchema,
     inst: &TransformationInstance,
 ) -> Result<AdmittedRelation, MetisError> {
-    if !schema.matches_instance(inst) {
-        return Err(MetisError::ProofInvalid);
-    }
-    ensure_judgment(graph, schema.premise_a.kind, inst.premise_a)?;
-    ensure_judgment(graph, schema.premise_b.kind, inst.premise_b)?;
-    // Conclusion must be entailed by the schema wiring; for equal_transitivity the path x-y-z exists.
-    if schema.name == "equal_transitivity" {
-        let (x, z) = inst.conclusion;
-        if graph.find_equal_path(x, z)?.is_none() {
-            return Err(MetisError::ProofInvalid);
-        }
-    }
-    let tag = fingerprint_instance(world, schema, inst);
-    Ok(AdmittedRelation::mint(
-        world,
-        schema.conclusion_kind,
-        inst.conclusion,
-        tag,
-        JudgmentLane::SingleWorldReplay,
-    ))
+    let evidence = evidence_from_two_premise(graph, schema, inst)?;
+    replay_evidence(graph, world, &evidence, &[])
 }
 
-fn ensure_judgment(graph: &Graph, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Result<(), MetisError> {
+fn find_judgment_edge(graph: &Graph, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Result<EdgeId, MetisError> {
     let (from, to) = endpoints;
     for (eid, k, nxt) in graph.judgment_outgoing(from)? {
         if k == kind && nxt == to && graph.is_judgment(eid)? {
-            return Ok(());
+            return Ok(eid);
         }
     }
     // Symmetric Equal: allow reverse witness.
     if kind == EdgeKind::Equal {
         for (eid, k, nxt) in graph.judgment_outgoing(to)? {
             if k == EdgeKind::Equal && nxt == from && graph.is_judgment(eid)? {
-                return Ok(());
+                return Ok(eid);
             }
         }
     }
     Err(MetisError::ProofInvalid)
-}
-
-fn fingerprint_instance(world: WorldId, schema: &TransformationSchema, inst: &TransformationInstance) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for x in [
-        world.island.get() as u64,
-        world.version,
-        inst.premise_a.0 .0,
-        inst.premise_a.1 .0,
-        inst.premise_b.0 .0,
-        inst.premise_b.1 .0,
-        inst.conclusion.0 .0,
-        inst.conclusion.1 .0,
-        schema.name.len() as u64,
-    ] {
-        h ^= x;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    h
 }
 
 #[cfg(test)]
@@ -134,6 +125,8 @@ mod tests {
     use super::*;
     use core::num::NonZeroU32;
     use metis_types::IslandId;
+
+    use crate::evidence::height;
 
     fn world() -> WorldId {
         WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 1 }
@@ -153,9 +146,12 @@ mod tests {
             premise_b: (b, c),
             conclusion: (a, c),
         };
+        let evidence = evidence_from_two_premise(&g, &schema, &inst).unwrap();
+        assert_eq!(height(&evidence), 1);
         let adm = replay_two_premise(&g, world(), &schema, &inst).unwrap();
         assert_eq!(adm.endpoints(), (a, c));
         assert_eq!(adm.kind(), EdgeKind::Equal);
+        assert!(adm.is_trusted_path_candidate());
     }
 
     #[test]
