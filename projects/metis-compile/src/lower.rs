@@ -83,11 +83,23 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
             }
         }
 
-        // `use` must name an already-accepted island (declaration order matters).
-        for name in &uses {
-            let pid = out.store.lookup(name).ok_or(MetisError::IslandNotFound)?;
+        // Canonical single-base extension `island C : B` (Living `09`).
+        // Legacy island-body `use` remains as migration compatibility.
+        if let Some(base) = &island.extends {
+            if !uses.is_empty() {
+                // Single direct base only — do not mix `:` with body `use`.
+                return Err(MetisError::InvalidHandle);
+            }
+            let pid = out.store.lookup(base).ok_or(MetisError::IslandNotFound)?;
             let parent = out.store.get(pid)?.world_id(pid);
             out.store.add_staging_parent(parent)?;
+        } else {
+            // `use` must name an already-accepted island (declaration order matters).
+            for name in &uses {
+                let pid = out.store.lookup(name).ok_or(MetisError::IslandNotFound)?;
+                let parent = out.store.get(pid)?.world_id(pid);
+                out.store.add_staging_parent(parent)?;
+            }
         }
 
         let id = out.store.accept_staging(island.name.clone())?;
@@ -218,5 +230,42 @@ island Ext {
         )
         .expect("parse");
         assert!(matches!(lower_module(&bad), Err(MetisError::IslandNotFound)));
+    }
+
+    #[test]
+    fn extends_sets_staging_parent() {
+        let ok = parse_module(
+            r#"
+island Base { node X }
+island Ext : Base { node Y }
+"#,
+        )
+        .expect("parse");
+        let low = lower_module(&ok).expect("lower");
+        let ext = low.store.lookup("Ext").unwrap();
+        let base = low.store.lookup("Base").unwrap();
+        let parents = &low.store.get(ext).unwrap().parents;
+        assert_eq!(parents.len(), 1);
+        assert_eq!(parents[0], low.store.get(base).unwrap().world_id(base));
+
+        let missing = parse_module(
+            r#"
+island Ext : Missing { node Y }
+"#,
+        )
+        .expect("parse");
+        assert!(matches!(lower_module(&missing), Err(MetisError::IslandNotFound)));
+
+        let mixed = parse_module(
+            r#"
+island Base { node X }
+island Ext : Base {
+    use Base
+    node Y
+}
+"#,
+        )
+        .expect("parse");
+        assert!(matches!(lower_module(&mixed), Err(MetisError::InvalidHandle)));
     }
 }

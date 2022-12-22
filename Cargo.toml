@@ -20,7 +20,7 @@ metis = { path = "projects/metis" }
 athena-types = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
 athena-gc = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
 athena-graph = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
-oak-metis = { git = "https://github.com/ygg-lang/oaks.git", branch = "dev", default-features = false }
+oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
