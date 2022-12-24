@@ -2,6 +2,7 @@
 //!
 //! Does **not** prove axioms or theorems. Surface `connection A <-> B` only registers
 //! bidirectional candidate skeletons (not Galois, not admitted morphisms).
+//! Top-level `using` is Living `09` name resolution only — never imports judgments.
 
 use std::collections::HashMap;
 
@@ -16,6 +17,8 @@ pub struct LoweringResult {
     pub store: IslandStore,
     /// Top-level `using Path` entries (name resolution only; no math import).
     pub usings: Vec<String>,
+    /// Short-name → full `using` path (last path segment). Duplicate shorts are rejected.
+    pub using_aliases: HashMap<String, String>,
     /// `(island, node_name) →` interned label node.
     pub nodes: HashMap<(IslandId, String), NodeId>,
     /// `(island, relation_name) →` declared generating kind.
@@ -30,11 +33,50 @@ pub struct LoweringResult {
     pub rewrites: Vec<(IslandId, String)>,
 }
 
+fn path_short_name(path: &str) -> &str {
+    path.rsplit("::").next().unwrap_or(path)
+}
+
+fn build_using_aliases(usings: &[String]) -> Result<HashMap<String, String>, MetisError> {
+    let mut aliases = HashMap::new();
+    for path in usings {
+        let short = path_short_name(path).to_string();
+        if short.is_empty() {
+            return Err(MetisError::InvalidHandle);
+        }
+        if let Some(prev) = aliases.insert(short.clone(), path.clone()) {
+            if prev != *path {
+                return Err(MetisError::InvalidHandle);
+            }
+        }
+    }
+    Ok(aliases)
+}
+
+/// Resolve an island reference for `:`, legacy `use`, or `connection` endpoints.
+///
+/// Order:
+/// 1. Exact store lookup of `name`
+/// 2. If `name` is a full path listed in `using`, lookup its terminal short name
+fn resolve_island_ref(store: &IslandStore, usings: &[String], name: &str) -> Result<IslandId, MetisError> {
+    if let Some(id) = store.lookup(name) {
+        return Ok(id);
+    }
+    if name.contains("::") && usings.iter().any(|u| u == name) {
+        let short = path_short_name(name);
+        if let Some(id) = store.lookup(short) {
+            return Ok(id);
+        }
+    }
+    Err(MetisError::IslandNotFound)
+}
+
 /// Lower a typed module AST into an [`IslandStore`].
 pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
     let mut out = LoweringResult::default();
     // Living `09`: `using` is elaborator name material only — record paths, import no judgments.
     out.usings = module.usings.clone();
+    out.using_aliases = build_using_aliases(&out.usings)?;
     let mut next_custom: u16 = 1;
     let mut pending_connections: Vec<(String, String)> = Vec::new();
 
@@ -94,13 +136,13 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
                 // Single direct base only — do not mix `:` with body `use`.
                 return Err(MetisError::InvalidHandle);
             }
-            let pid = out.store.lookup(base).ok_or(MetisError::IslandNotFound)?;
+            let pid = resolve_island_ref(&out.store, &out.usings, base)?;
             let parent = out.store.get(pid)?.world_id(pid);
             out.store.add_staging_parent(parent)?;
         } else {
             // `use` must name an already-accepted island (declaration order matters).
             for name in &uses {
-                let pid = out.store.lookup(name).ok_or(MetisError::IslandNotFound)?;
+                let pid = resolve_island_ref(&out.store, &out.usings, name)?;
                 let parent = out.store.get(pid)?.world_id(pid);
                 out.store.add_staging_parent(parent)?;
             }
@@ -125,8 +167,8 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
     }
 
     for (left, right) in pending_connections {
-        let lid = out.store.lookup(&left).ok_or(MetisError::IslandNotFound)?;
-        let rid = out.store.lookup(&right).ok_or(MetisError::IslandNotFound)?;
+        let lid = resolve_island_ref(&out.store, &out.usings, &left)?;
+        let rid = resolve_island_ref(&out.store, &out.usings, &right)?;
         out.store.declare_bidirectional(lid, rid)?;
     }
 
@@ -285,6 +327,10 @@ island AbelianGroup : GroupTheory { node Element }
         .expect("parse");
         let low = lower_module(&module).expect("lower");
         assert_eq!(low.usings, vec!["std::algebra::GroupTheory".to_string()]);
+        assert_eq!(
+            low.using_aliases.get("GroupTheory").map(String::as_str),
+            Some("std::algebra::GroupTheory")
+        );
         let ab = low.store.lookup("AbelianGroup").unwrap();
         let gt = low.store.lookup("GroupTheory").unwrap();
         assert_eq!(low.store.get(ab).unwrap().parents.len(), 1);
@@ -294,5 +340,46 @@ island AbelianGroup : GroupTheory { node Element }
         );
         // `using` must not invent Extra islands or judgment edges.
         assert_eq!(low.store.lookup("std::algebra::GroupTheory"), None);
+    }
+
+    #[test]
+    fn using_resolves_qualified_extends_to_short_island() {
+        let module = parse_module(
+            r#"
+using std::algebra::GroupTheory
+island GroupTheory { node Element }
+island AbelianGroup : std::algebra::GroupTheory { node Element }
+"#,
+        )
+        .expect("parse");
+        let low = lower_module(&module).expect("lower");
+        let ab = low.store.lookup("AbelianGroup").unwrap();
+        let gt = low.store.lookup("GroupTheory").unwrap();
+        assert_eq!(
+            low.store.get(ab).unwrap().parents[0],
+            low.store.get(gt).unwrap().world_id(gt)
+        );
+
+        let no_using = parse_module(
+            r#"
+island GroupTheory { node Element }
+island AbelianGroup : std::algebra::GroupTheory { node Element }
+"#,
+        )
+        .expect("parse");
+        assert!(matches!(lower_module(&no_using), Err(MetisError::IslandNotFound)));
+    }
+
+    #[test]
+    fn duplicate_using_short_names_rejected() {
+        let module = parse_module(
+            r#"
+using a::Foo
+using b::Foo
+island Foo { node X }
+"#,
+        )
+        .expect("parse");
+        assert!(matches!(lower_module(&module), Err(MetisError::InvalidHandle)));
     }
 }
