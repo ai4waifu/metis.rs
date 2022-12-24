@@ -14,6 +14,8 @@ use oak_metis::{Item, Module};
 pub struct LoweringResult {
     /// Populated island store (accepted worlds).
     pub store: IslandStore,
+    /// Top-level `using Path` entries (name resolution only; no math import).
+    pub usings: Vec<String>,
     /// `(island, node_name) →` interned label node.
     pub nodes: HashMap<(IslandId, String), NodeId>,
     /// `(island, relation_name) →` declared generating kind.
@@ -31,6 +33,8 @@ pub struct LoweringResult {
 /// Lower a typed module AST into an [`IslandStore`].
 pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
     let mut out = LoweringResult::default();
+    // Living `09`: `using` is elaborator name material only — record paths, import no judgments.
+    out.usings = module.usings.clone();
     let mut next_custom: u16 = 1;
     let mut pending_connections: Vec<(String, String)> = Vec::new();
 
@@ -267,5 +271,28 @@ island Ext : Base {
         )
         .expect("parse");
         assert!(matches!(lower_module(&mixed), Err(MetisError::InvalidHandle)));
+    }
+
+    #[test]
+    fn records_top_level_using_without_importing_math() {
+        let module = parse_module(
+            r#"
+using std::algebra::GroupTheory
+island GroupTheory { node Element }
+island AbelianGroup : GroupTheory { node Element }
+"#,
+        )
+        .expect("parse");
+        let low = lower_module(&module).expect("lower");
+        assert_eq!(low.usings, vec!["std::algebra::GroupTheory".to_string()]);
+        let ab = low.store.lookup("AbelianGroup").unwrap();
+        let gt = low.store.lookup("GroupTheory").unwrap();
+        assert_eq!(low.store.get(ab).unwrap().parents.len(), 1);
+        assert_eq!(
+            low.store.get(ab).unwrap().parents[0],
+            low.store.get(gt).unwrap().world_id(gt)
+        );
+        // `using` must not invent Extra islands or judgment edges.
+        assert_eq!(low.store.lookup("std::algebra::GroupTheory"), None);
     }
 }
