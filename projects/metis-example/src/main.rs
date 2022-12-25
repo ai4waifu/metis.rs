@@ -16,7 +16,7 @@ fn main() {
     );
 
     let low = compile_declarations(group).expect("lower group");
-    let gid = low.store.lookup("GroupTheory").expect("GroupTheory");
+    let gid = low.store.lookup("std::algebra::GroupTheory").expect("GroupTheory");
     println!(
         "lowered GroupTheory nodes={} relations={} axioms={} actions={} rewrites={}",
         low.nodes.iter().filter(|((id, _), _)| *id == gid).count(),

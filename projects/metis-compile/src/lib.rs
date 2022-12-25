@@ -75,6 +75,6 @@ mod tests {
     #[test]
     fn compile_declarations_group_fixture() {
         let low = compile_declarations(GROUP).expect("compile");
-        assert!(low.store.lookup("GroupTheory").is_some());
+        assert!(low.store.lookup("std::algebra::GroupTheory").is_some());
     }
 }

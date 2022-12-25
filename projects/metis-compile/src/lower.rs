@@ -19,6 +19,8 @@ pub struct LoweringResult {
     pub usings: Vec<String>,
     /// Short-name → full `using` path (last path segment). Duplicate shorts are rejected.
     pub using_aliases: HashMap<String, String>,
+    /// Same-module short island name → store registration key (`namespace::name` or bare).
+    pub local_aliases: HashMap<String, String>,
     /// `(island, node_name) →` interned label node.
     pub nodes: HashMap<(IslandId, String), NodeId>,
     /// `(island, relation_name) →` declared generating kind.
@@ -35,6 +37,13 @@ pub struct LoweringResult {
 
 fn path_short_name(path: &str) -> &str {
     path.rsplit("::").next().unwrap_or(path)
+}
+
+fn island_register_name(island: &oak_metis::Island) -> String {
+    match &island.namespace {
+        Some(ns) if !ns.is_empty() => format!("{ns}::{}", island.name),
+        _ => island.name.clone(),
+    }
 }
 
 fn build_using_aliases(usings: &[String]) -> Result<HashMap<String, String>, MetisError> {
@@ -58,7 +67,15 @@ fn build_using_aliases(usings: &[String]) -> Result<HashMap<String, String>, Met
 /// Order:
 /// 1. Exact store lookup of `name`
 /// 2. If `name` is a full path listed in `using`, lookup its terminal short name
-fn resolve_island_ref(store: &IslandStore, usings: &[String], name: &str) -> Result<IslandId, MetisError> {
+///    (islands registered without a namespace)
+/// 3. If `name` is a short alias from `using`, lookup the full path registration
+/// 4. Same-module short name → qualified registration key
+fn resolve_island_ref(
+    store: &IslandStore,
+    usings: &[String],
+    local_aliases: &HashMap<String, String>,
+    name: &str,
+) -> Result<IslandId, MetisError> {
     if let Some(id) = store.lookup(name) {
         return Ok(id);
     }
@@ -66,6 +83,20 @@ fn resolve_island_ref(store: &IslandStore, usings: &[String], name: &str) -> Res
         let short = path_short_name(name);
         if let Some(id) = store.lookup(short) {
             return Ok(id);
+        }
+    }
+    if !name.contains("::") {
+        for path in usings {
+            if path_short_name(path) == name {
+                if let Some(id) = store.lookup(path) {
+                    return Ok(id);
+                }
+            }
+        }
+        if let Some(qualified) = local_aliases.get(name) {
+            if let Some(id) = store.lookup(qualified) {
+                return Ok(id);
+            }
         }
     }
     Err(MetisError::IslandNotFound)
@@ -136,19 +167,21 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
                 // Single direct base only — do not mix `:` with body `use`.
                 return Err(MetisError::InvalidHandle);
             }
-            let pid = resolve_island_ref(&out.store, &out.usings, base)?;
+            let pid = resolve_island_ref(&out.store, &out.usings, &out.local_aliases, base)?;
             let parent = out.store.get(pid)?.world_id(pid);
             out.store.add_staging_parent(parent)?;
         } else {
             // `use` must name an already-accepted island (declaration order matters).
             for name in &uses {
-                let pid = resolve_island_ref(&out.store, &out.usings, name)?;
+                let pid = resolve_island_ref(&out.store, &out.usings, &out.local_aliases, name)?;
                 let parent = out.store.get(pid)?.world_id(pid);
                 out.store.add_staging_parent(parent)?;
             }
         }
 
-        let id = out.store.accept_staging(island.name.clone())?;
+        let register_as = island_register_name(island);
+        out.local_aliases.insert(island.name.clone(), register_as.clone());
+        let id = out.store.accept_staging(register_as)?;
         for (name, nid) in local_nodes {
             out.nodes.insert((id, name), nid);
         }
@@ -167,8 +200,8 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
     }
 
     for (left, right) in pending_connections {
-        let lid = resolve_island_ref(&out.store, &out.usings, &left)?;
-        let rid = resolve_island_ref(&out.store, &out.usings, &right)?;
+        let lid = resolve_island_ref(&out.store, &out.usings, &out.local_aliases, &left)?;
+        let rid = resolve_island_ref(&out.store, &out.usings, &out.local_aliases, &right)?;
         out.store.declare_bidirectional(lid, rid)?;
     }
 
@@ -190,7 +223,7 @@ mod tests {
         let src = include_str!("../fixtures/group_theory_min.metis");
         let module = parse_module(src).expect("parse");
         let low = lower_module(&module).expect("lower");
-        let id = low.store.lookup("GroupTheory").expect("island");
+        let id = low.store.lookup("std::algebra::GroupTheory").expect("island");
         assert!(low.nodes.contains_key(&(id, "Group".into())));
         assert!(low.nodes.contains_key(&(id, "Element".into())));
         assert!(low.relations.contains_key(&(id, "Mul".into())));
@@ -381,5 +414,58 @@ island Foo { node X }
         )
         .expect("parse");
         assert!(matches!(lower_module(&module), Err(MetisError::InvalidHandle)));
+    }
+
+    #[test]
+    fn namespace_registers_qualified_name_resolvable_via_using() {
+        let module = parse_module(
+            r#"
+namespace std::algebra
+using std::algebra::GroupTheory
+island GroupTheory { node Element }
+island AbelianGroup : GroupTheory { node Element }
+"#,
+        )
+        .expect("parse");
+        let low = lower_module(&module).expect("lower");
+        assert!(low.store.lookup("std::algebra::GroupTheory").is_some());
+        assert!(low.store.lookup("std::algebra::AbelianGroup").is_some());
+        // Bare short name is not a store key when namespace is set.
+        assert_eq!(low.store.lookup("GroupTheory"), None);
+        let via_using =
+            resolve_island_ref(&low.store, &low.usings, &low.local_aliases, "GroupTheory").unwrap();
+        let gt = low.store.lookup("std::algebra::GroupTheory").unwrap();
+        assert_eq!(via_using, gt);
+        let via_local =
+            resolve_island_ref(&low.store, &low.usings, &low.local_aliases, "AbelianGroup").unwrap();
+        let ab_id = low.store.lookup("std::algebra::AbelianGroup").unwrap();
+        assert_eq!(via_local, ab_id);
+        assert_eq!(
+            low.local_aliases.get("GroupTheory").map(String::as_str),
+            Some("std::algebra::GroupTheory")
+        );
+        assert_eq!(
+            low.store.get(ab_id).unwrap().parents[0],
+            low.store.get(gt).unwrap().world_id(gt)
+        );
+    }
+
+    #[test]
+    fn same_module_namespace_short_name_extends_without_using() {
+        let module = parse_module(
+            r#"
+namespace std::algebra
+island GroupTheory { node Element }
+island AbelianGroup : GroupTheory { node Element }
+"#,
+        )
+        .expect("parse");
+        let low = lower_module(&module).expect("lower");
+        let gt = low.store.lookup("std::algebra::GroupTheory").unwrap();
+        let ab = low.store.lookup("std::algebra::AbelianGroup").unwrap();
+        assert_eq!(
+            low.store.get(ab).unwrap().parents[0],
+            low.store.get(gt).unwrap().world_id(gt)
+        );
     }
 }
