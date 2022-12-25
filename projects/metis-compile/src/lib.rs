@@ -70,11 +70,30 @@ mod tests {
         let m = parse_source(GRAPH).expect("graph_bfs_min.metis");
         assert!(m.islands.iter().any(|i| i.name == "GraphTheory"));
         assert!(m.islands.iter().any(|i| i.name == "BFS"));
+        assert_eq!(m.usings, vec!["std::graph_theory::GraphTheory".to_string()]);
+        let bfs = m.islands.iter().find(|i| i.name == "BFS").unwrap();
+        assert_eq!(bfs.extends.as_deref(), Some("GraphTheory"));
+        assert!(!bfs.items.iter().any(|i| matches!(i, Item::Use(_))));
     }
 
     #[test]
     fn compile_declarations_group_fixture() {
         let low = compile_declarations(GROUP).expect("compile");
         assert!(low.store.lookup("std::algebra::GroupTheory").is_some());
+    }
+
+    #[test]
+    fn compile_declarations_graph_bfs_fixture() {
+        let low = compile_declarations(GRAPH).expect("compile");
+        let gt = low.store.lookup("std::graph_theory::GraphTheory").expect("GraphTheory");
+        let bfs = low.store.lookup("std::algorithms::BFS").expect("BFS");
+        assert_eq!(
+            low.store.get(bfs).unwrap().parents[0],
+            low.store.get(gt).unwrap().world_id(gt)
+        );
+        assert_eq!(
+            low.using_aliases.get("GraphTheory").map(String::as_str),
+            Some("std::graph_theory::GraphTheory")
+        );
     }
 }

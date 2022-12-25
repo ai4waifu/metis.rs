@@ -27,10 +27,10 @@ island GraphTheory
 
 namespace std::algorithms
 
-island BFS
-{
-    use GraphTheory
+using std::graph_theory::GraphTheory
 
+island BFS : GraphTheory
+{
     relation BFS : Graph -> Vertex -> Bool
 
     theorem BFS_Complexity
