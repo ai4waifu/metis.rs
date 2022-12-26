@@ -447,9 +447,9 @@ impl IslandStore {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
         let (status, admitted) =
-            metis_graph::derivation::search_and_admit_equal(&entry.graph, world, left, right)?;
-        if let Some(rel) = admitted {
-            self.inner.insert(rel)?;
+            metis_graph::derivation::search_and_admit_equal_checked(&entry.graph, world, left, right)?;
+        if let Some((rel, evidence)) = admitted {
+            self.inner.insert_checked(rel, evidence)?;
             Ok((status, Some(rel)))
         } else {
             Ok((status, None))
@@ -480,9 +480,22 @@ impl IslandStore {
     ) -> Result<metis_graph::admission::AdmittedRelation, MetisError> {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
-        let rel = metis_graph::relation::admit_equal_relation(&entry.graph, world, candidate)?;
-        self.inner.insert(rel)?;
-        Ok(rel)
+        if candidate.world != world {
+            return Err(MetisError::ProofInvalid);
+        }
+        let (status, pair) = metis_graph::derivation::search_and_admit_equal_checked(
+            &entry.graph,
+            world,
+            candidate.endpoints.0,
+            candidate.endpoints.1,
+        )?;
+        match (status, pair) {
+            (QueryStatus::Proven, Some((rel, evidence))) => {
+                self.inner.insert_checked(rel, evidence)?;
+                Ok(rel)
+            }
+            _ => Err(MetisError::ProofInvalid),
+        }
     }
 
     pub fn is_quarantined(&self, island: IslandId) -> bool {
@@ -831,6 +844,7 @@ mod tests {
             store.query_inner_equal(id, a, b).unwrap(),
             metis_graph::admission::QueryStatus::Proven
         );
+        assert!(store.inner().evidence_of(adm.unwrap().world(), EdgeKind::Equal, (a, b)).is_some());
     }
 
     #[test]

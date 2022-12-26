@@ -15,7 +15,10 @@ pub use metis_graph::{
         identity_morphism, refuse_galois_without_proof, transport_relation, transport_relation_asserting,
         validate_candidate,
     },
-    derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
+    derivation::{
+        DerivationDiagram, replay_equal_derivation, replay_equal_derivation_checked, search_and_admit_equal,
+        search_and_admit_equal_checked,
+    },
     eval::{
         EvalAttachment, EvalCertificateKind, eval_is_not_equal, eval_query_status, form_eval_attachment,
         form_eval_candidate, may_request_admission, refuse_eval_as_equal,

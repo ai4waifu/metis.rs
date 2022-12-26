@@ -7,7 +7,7 @@
 use metis_types::{MetisError, NodeId};
 
 use super::admission::{AdmittedRelation, QueryStatus, WorldId, query_status_of_admitted};
-use super::evidence::{evidence_from_equal_steps, replay_evidence};
+use super::evidence::{Evidence, evidence_from_equal_steps, replay_evidence};
 use super::{Graph, Step};
 
 /// Degenerate derivation diagram: ordered EQ steps under a fixed world version.
@@ -25,10 +25,19 @@ pub struct DerivationDiagram {
 /// Encodes steps into Living `10` evidence (`gen` / `app`) and replays under empty `Γ`.
 /// Does not invent edges. Tampered steps / endpoints fail with [`MetisError::ProofInvalid`].
 pub fn replay_equal_derivation(graph: &Graph, diagram: &DerivationDiagram) -> Result<AdmittedRelation, MetisError> {
+    Ok(replay_equal_derivation_checked(graph, diagram)?.0)
+}
+
+/// Like [`replay_equal_derivation`], but also returns the checked evidence AST.
+pub fn replay_equal_derivation_checked(
+    graph: &Graph,
+    diagram: &DerivationDiagram,
+) -> Result<(AdmittedRelation, Evidence), MetisError> {
     let (start, end) = diagram.conclusion;
     verify_equal_steps(graph, start, end, &diagram.steps)?;
     let evidence = evidence_from_equal_steps(graph, start, end, &diagram.steps)?;
-    replay_evidence(graph, diagram.world, &evidence, &[])
+    let admitted = replay_evidence(graph, diagram.world, &evidence, &[])?;
+    Ok((admitted, evidence))
 }
 
 /// Search then replay: missing path → [`QueryStatus::Unknown`] (no admission).
@@ -38,16 +47,27 @@ pub fn search_and_admit_equal(
     left: NodeId,
     right: NodeId,
 ) -> Result<(QueryStatus, Option<AdmittedRelation>), MetisError> {
+    let (status, pair) = search_and_admit_equal_checked(graph, world, left, right)?;
+    Ok((status, pair.map(|(adm, _)| adm)))
+}
+
+/// Search then replay, returning the evidence AST alongside the opaque token.
+pub fn search_and_admit_equal_checked(
+    graph: &Graph,
+    world: WorldId,
+    left: NodeId,
+    right: NodeId,
+) -> Result<(QueryStatus, Option<(AdmittedRelation, Evidence)>), MetisError> {
     if left == right {
         let diagram = DerivationDiagram { world, conclusion: (left, right), steps: Vec::new() };
-        let admitted = replay_equal_derivation(graph, &diagram)?;
-        return Ok((query_status_of_admitted(admitted), Some(admitted)));
+        let (admitted, evidence) = replay_equal_derivation_checked(graph, &diagram)?;
+        return Ok((query_status_of_admitted(admitted), Some((admitted, evidence))));
     }
     match graph.find_equal_path(left, right)? {
         Some(steps) => {
             let diagram = DerivationDiagram { world, conclusion: (left, right), steps };
-            let admitted = replay_equal_derivation(graph, &diagram)?;
-            Ok((query_status_of_admitted(admitted), Some(admitted)))
+            let (admitted, evidence) = replay_equal_derivation_checked(graph, &diagram)?;
+            Ok((query_status_of_admitted(admitted), Some((admitted, evidence))))
         }
         None => Ok((QueryStatus::Unknown, None)),
     }
