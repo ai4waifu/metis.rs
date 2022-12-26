@@ -98,8 +98,19 @@ pub fn replay_two_premise(
     schema: &TransformationSchema,
     inst: &TransformationInstance,
 ) -> Result<AdmittedRelation, MetisError> {
+    Ok(replay_two_premise_checked(graph, world, schema, inst)?.0)
+}
+
+/// Like [`replay_two_premise`], but also returns the checked evidence AST.
+pub fn replay_two_premise_checked(
+    graph: &Graph,
+    world: WorldId,
+    schema: &TransformationSchema,
+    inst: &TransformationInstance,
+) -> Result<(AdmittedRelation, Evidence), MetisError> {
     let evidence = evidence_from_two_premise(graph, schema, inst)?;
-    replay_evidence(graph, world, &evidence, &[])
+    let admitted = replay_evidence(graph, world, &evidence, &[])?;
+    Ok((admitted, evidence))
 }
 
 fn find_judgment_edge(graph: &Graph, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Result<EdgeId, MetisError> {

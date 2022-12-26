@@ -472,6 +472,21 @@ impl IslandStore {
         &self.inner
     }
 
+    /// Replay a declared two-premise transform and register it in bootstrap `Inner(W)`.
+    pub fn admit_two_premise(
+        &mut self,
+        island: IslandId,
+        schema: &metis_graph::transform::TransformationSchema,
+        inst: &metis_graph::transform::TransformationInstance,
+    ) -> Result<metis_graph::admission::AdmittedRelation, MetisError> {
+        let entry = self.get(island)?;
+        let world = entry.world_id(island);
+        let (rel, evidence) =
+            metis_graph::transform::replay_two_premise_checked(&entry.graph, world, schema, inst)?;
+        self.inner.insert_checked(rel, evidence)?;
+        Ok(rel)
+    }
+
     /// Admit an EQ [`CandidateRelation`] under the island's current world (Living `admit_relation`).
     pub fn admit_equal_candidate(
         &mut self,
@@ -870,7 +885,7 @@ mod tests {
     fn core_acceptance_smoke_eight_points() {
         use metis_graph::admission::QueryStatus;
         use metis_graph::conflict::Incompatibility;
-        use metis_graph::transform::{TransformationInstance, TransformationSchema, replay_two_premise};
+        use metis_graph::transform::{TransformationInstance, TransformationSchema};
 
         const NOT_EQ: u16 = 9;
         let mut store = IslandStore::new();
@@ -891,20 +906,20 @@ mod tests {
         store.assert_generating(a, EdgeKind::Equal, b).unwrap();
         store.assert_generating(b, EdgeKind::Equal, c).unwrap();
         let id = store.accept_staging("EQ").unwrap();
-        let island = store.get(id).unwrap();
-        let world = island.world_id(id);
-        // 3–4. searcher proposes instance; kernel replays and admits
+        let world = store.get(id).unwrap().world_id(id);
+        // 3–4. searcher proposes instance; kernel replays and admits into Inner
         let schema = TransformationSchema::equal_transitivity();
         let inst = TransformationInstance {
             premise_a: (a, b),
             premise_b: (b, c),
             conclusion: (a, c),
         };
-        let adm = replay_two_premise(&island.graph, world, &schema, &inst).unwrap();
+        let adm = store.admit_two_premise(id, &schema, &inst).unwrap();
         assert_eq!(adm.endpoints(), (a, c));
+        assert!(store.inner().evidence_of(world, EdgeKind::Equal, (a, c)).is_some());
         // 5. tamper conclusion → reject
         let bad = TransformationInstance { conclusion: (a, b), ..inst };
-        assert!(replay_two_premise(&island.graph, world, &schema, &bad).is_err());
+        assert!(store.admit_two_premise(id, &schema, &bad).is_err());
         // 6. missing path → Unknown
         store.open_staging("u").unwrap();
         store.declare_generating_kind(EdgeKind::Equal).unwrap();
@@ -934,7 +949,7 @@ mod tests {
         assert!(store.is_quarantined(cid));
         assert!(!store.is_quarantined(id));
         // 8. same evidence → same tag
-        let adm2 = replay_two_premise(&store.get(id).unwrap().graph, world, &schema, &inst).unwrap();
+        let adm2 = store.admit_two_premise(id, &schema, &inst).unwrap();
         assert_eq!(adm.evidence_tag(), adm2.evidence_tag());
     }
 
