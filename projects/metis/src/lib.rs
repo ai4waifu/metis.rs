@@ -23,6 +23,9 @@ pub use metis_graph::{
         EvalAttachment, EvalCertificateKind, eval_is_not_equal, eval_query_status, form_eval_attachment,
         form_eval_candidate, may_request_admission, refuse_eval_as_equal,
     },
+    derivation_rules::{
+        EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, apply_builtin_rule, builtin_rule_names, is_builtin_rule,
+    },
     evidence::{
         CheckedDerivation, Evidence, JudgmentAtom, concluded_judgment, evidence_from_equal_steps, height,
         replay_checked_derivation, replay_evidence, validate_finite,

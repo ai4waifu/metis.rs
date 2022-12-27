@@ -23,6 +23,7 @@ pub mod admission;
 pub mod conflict;
 pub mod connection;
 pub mod derivation;
+pub mod derivation_rules;
 pub mod eval;
 pub mod evidence;
 pub mod inner;

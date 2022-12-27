@@ -10,6 +10,9 @@
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 use super::admission::{AdmittedRelation, JudgmentLane, WorldId};
+use super::derivation_rules::{
+    EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, apply_builtin_rule,
+};
 use super::Graph;
 
 /// Atomic judgment `R(p, q)` (binary foundation slice).
@@ -88,8 +91,8 @@ pub fn concluded_judgment(graph: &Graph, evidence: &Evidence) -> Result<Judgment
 /// Encode a degenerate EQ step list as evidence under Living `10` shapes.
 ///
 /// - empty + `left == right` → `app(equal_refl, [], Equal(left,right))`
-/// - one step → `gen(edge)` (oriented to conclude `left ~ right`)
-/// - many steps → nested `app(equal_transitivity, …)` over per-step `gen`s
+/// - one oriented step → `gen(edge)` or `app(equal_symmetry, [gen], …)` when reversed
+/// - many steps → nested `app(equal_transitivity, …)` over oriented step evidence
 pub fn evidence_from_equal_steps(
     graph: &Graph,
     left: NodeId,
@@ -101,14 +104,14 @@ pub fn evidence_from_equal_steps(
             return Err(MetisError::ProofInvalid);
         }
         return Ok(Evidence::App {
-            rule: "equal_refl".into(),
+            rule: EQUAL_REFL.into(),
             premises: Vec::new(),
             conclusion: JudgmentAtom { kind: EdgeKind::Equal, endpoints: (left, right) },
         });
     }
 
     let mut cur = left;
-    let mut gens: Vec<Evidence> = Vec::with_capacity(steps.len());
+    let mut oriented: Vec<Evidence> = Vec::with_capacity(steps.len());
     let mut ends: Vec<NodeId> = Vec::with_capacity(steps.len());
     for step in steps {
         let (from, kind, to) = graph.edge(step.edge)?;
@@ -119,7 +122,20 @@ pub fn evidence_from_equal_steps(
         if cur != expected_from {
             return Err(MetisError::ProofInvalid);
         }
-        gens.push(Evidence::Gen { edge: step.edge });
+        let gen_ev = Evidence::Gen { edge: step.edge };
+        let step_ev = if step.forward {
+            gen_ev
+        } else {
+            Evidence::App {
+                rule: EQUAL_SYMMETRY.into(),
+                premises: vec![gen_ev],
+                conclusion: JudgmentAtom {
+                    kind: EdgeKind::Equal,
+                    endpoints: (expected_from, nxt),
+                },
+            }
+        };
+        oriented.push(step_ev);
         ends.push(nxt);
         cur = nxt;
     }
@@ -127,16 +143,16 @@ pub fn evidence_from_equal_steps(
         return Err(MetisError::ProofInvalid);
     }
 
-    if gens.len() == 1 {
-        return Ok(gens.pop().unwrap());
+    if oriented.len() == 1 {
+        return Ok(oriented.pop().unwrap());
     }
 
-    let mut acc = gens.remove(0);
-    for (i, next_gen) in gens.into_iter().enumerate() {
+    let mut acc = oriented.remove(0);
+    for (i, next_ev) in oriented.into_iter().enumerate() {
         let next_end = ends[i + 1];
         acc = Evidence::App {
-            rule: "equal_transitivity".into(),
-            premises: vec![acc, next_gen],
+            rule: EQUAL_TRANSITIVITY.into(),
+            premises: vec![acc, next_ev],
             conclusion: JudgmentAtom {
                 kind: EdgeKind::Equal,
                 endpoints: (left, next_end),
@@ -195,38 +211,11 @@ fn replay_under(graph: &Graph, evidence: &Evidence, gamma: &[JudgmentAtom]) -> R
             Ok(*judgment)
         }
         Evidence::App { rule, premises, conclusion } => {
-            match rule.as_str() {
-                "equal_refl" => {
-                    if !premises.is_empty() {
-                        return Err(MetisError::ProofInvalid);
-                    }
-                    let (a, b) = conclusion.endpoints;
-                    if conclusion.kind != EdgeKind::Equal || a != b {
-                        return Err(MetisError::ProofInvalid);
-                    }
-                    Ok(*conclusion)
-                }
-                "equal_transitivity" => {
-                    if premises.len() != 2 {
-                        return Err(MetisError::ProofInvalid);
-                    }
-                    let j0 = replay_under(graph, &premises[0], gamma)?;
-                    let j1 = replay_under(graph, &premises[1], gamma)?;
-                    if j0.kind != EdgeKind::Equal || j1.kind != EdgeKind::Equal {
-                        return Err(MetisError::ProofInvalid);
-                    }
-                    let (x, y1) = j0.endpoints;
-                    let (y2, z) = j1.endpoints;
-                    if y1 != y2 {
-                        return Err(MetisError::ProofInvalid);
-                    }
-                    if conclusion.kind != EdgeKind::Equal || conclusion.endpoints != (x, z) {
-                        return Err(MetisError::ProofInvalid);
-                    }
-                    Ok(*conclusion)
-                }
-                _ => Err(MetisError::ProofInvalid),
+            let mut premise_atoms = Vec::with_capacity(premises.len());
+            for p in premises {
+                premise_atoms.push(replay_under(graph, p, gamma)?);
             }
+            apply_builtin_rule(rule, &premise_atoms, *conclusion)
         }
     }
 }
@@ -300,6 +289,7 @@ mod tests {
     use super::*;
     use core::num::NonZeroU32;
     use metis_types::IslandId;
+    use crate::derivation_rules::EQUAL_SYMMETRY;
 
     fn world() -> WorldId {
         WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 1 }
@@ -358,5 +348,27 @@ mod tests {
         assert!(height(&e) >= 1);
         let adm = replay_evidence(&g, world(), &e, &[]).unwrap();
         assert_eq!(adm.endpoints(), (a, c));
+    }
+
+    #[test]
+    fn reverse_step_uses_symmetry_rule() {
+        let mut g = Graph::new();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        g.assert(a, EdgeKind::Equal, b).unwrap();
+        let steps = g.find_equal_path(b, a).unwrap().unwrap();
+        assert_eq!(steps.len(), 1);
+        assert!(!steps[0].forward);
+        let e = evidence_from_equal_steps(&g, b, a, &steps).unwrap();
+        match &e {
+            Evidence::App { rule, premises, conclusion } => {
+                assert_eq!(rule, EQUAL_SYMMETRY);
+                assert_eq!(premises.len(), 1);
+                assert_eq!(conclusion.endpoints, (b, a));
+            }
+            _ => panic!("expected symmetry app"),
+        }
+        let adm = replay_evidence(&g, world(), &e, &[]).unwrap();
+        assert_eq!(adm.endpoints(), (b, a));
     }
 }

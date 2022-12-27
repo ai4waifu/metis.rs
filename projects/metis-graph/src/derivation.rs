@@ -37,6 +37,9 @@ pub fn replay_equal_derivation_checked(
     verify_equal_steps(graph, start, end, &diagram.steps)?;
     let evidence = evidence_from_equal_steps(graph, start, end, &diagram.steps)?;
     let admitted = replay_evidence(graph, diagram.world, &evidence, &[])?;
+    if admitted.kind() != metis_types::EdgeKind::Equal || admitted.endpoints() != (start, end) {
+        return Err(MetisError::ProofInvalid);
+    }
     Ok((admitted, evidence))
 }
 
@@ -155,5 +158,19 @@ mod tests {
         let (_, x) = search_and_admit_equal(&g, w, a, b).unwrap();
         let (_, y) = search_and_admit_equal(&g, w, a, b).unwrap();
         assert_eq!(x.unwrap().evidence_tag(), y.unwrap().evidence_tag());
+    }
+
+    #[test]
+    fn reverse_equal_path_admits_oriented_conclusion() {
+        let mut g = Graph::new();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        g.assert(a, EdgeKind::Equal, b).unwrap();
+        let w = world();
+        let (st, adm) = search_and_admit_equal(&g, w, b, a).unwrap();
+        assert_eq!(st, QueryStatus::Proven);
+        let adm = adm.unwrap();
+        assert_eq!(adm.endpoints(), (b, a));
+        assert_eq!(adm.kind(), EdgeKind::Equal);
     }
 }

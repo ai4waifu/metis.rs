@@ -7,6 +7,7 @@
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 use super::admission::{AdmittedRelation, WorldId};
+use super::derivation_rules::EQUAL_TRANSITIVITY;
 use super::evidence::{Evidence, JudgmentAtom, replay_evidence};
 use super::Graph;
 
@@ -41,7 +42,7 @@ impl TransformationSchema {
     /// EQ transitivity skeleton: `Equal(x,y)` and `Equal(y,z)` ⇒ `Equal(x,z)`.
     pub fn equal_transitivity() -> Self {
         Self {
-            name: "equal_transitivity".into(),
+            name: EQUAL_TRANSITIVITY.into(),
             premise_a: PremisePattern { kind: EdgeKind::Equal, from: None, to: None },
             premise_b: PremisePattern { kind: EdgeKind::Equal, from: None, to: None },
             conclusion_kind: EdgeKind::Equal,
@@ -50,7 +51,7 @@ impl TransformationSchema {
 
     /// Check that an instance matches this schema's shape (shared middle node for transitivity).
     pub fn matches_instance(&self, inst: &TransformationInstance) -> bool {
-        if self.name == "equal_transitivity" {
+        if self.name == EQUAL_TRANSITIVITY {
             let (x, y1) = inst.premise_a;
             let (y2, z) = inst.premise_b;
             let (cx, cz) = inst.conclusion;
@@ -72,7 +73,7 @@ pub fn evidence_from_two_premise(
     }
     let edge_a = find_judgment_edge(graph, schema.premise_a.kind, inst.premise_a)?;
     let edge_b = find_judgment_edge(graph, schema.premise_b.kind, inst.premise_b)?;
-    if schema.name == "equal_transitivity" {
+    if schema.name == EQUAL_TRANSITIVITY {
         let (x, z) = inst.conclusion;
         if graph.find_equal_path(x, z)?.is_none() {
             return Err(MetisError::ProofInvalid);

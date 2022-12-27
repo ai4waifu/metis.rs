@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use metis_types::EdgeKind;
 
+use super::derivation_rules::is_builtin_rule;
 use super::transform::TransformationSchema;
 
 /// Declared relation kinds that may appear as generators (axioms) in a world.
@@ -72,6 +73,11 @@ impl RuleTable {
     pub fn has_transform(&self, name: &str) -> bool {
         self.transforms.iter().any(|t| t.name == name)
     }
+
+    /// True if `name` is a builtin EQ derivation rule or a declared transform schema.
+    pub fn has_derivation_rule(&self, name: &str) -> bool {
+        is_builtin_rule(name) || self.has_transform(name)
+    }
 }
 
 #[cfg(test)]
@@ -89,10 +95,14 @@ mod tests {
 
     #[test]
     fn rule_table_holds_transitivity() {
+        use super::super::derivation_rules::{EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY};
         let mut rules = RuleTable::default();
         rules.declare_kind(EdgeKind::Equal);
         rules.add_transform(TransformationSchema::equal_transitivity());
-        assert!(rules.has_transform("equal_transitivity"));
+        assert!(rules.has_transform(EQUAL_TRANSITIVITY));
+        assert!(rules.has_derivation_rule(EQUAL_REFL));
+        assert!(rules.has_derivation_rule(EQUAL_SYMMETRY));
+        assert!(rules.has_derivation_rule(EQUAL_TRANSITIVITY));
         assert_eq!(rules.signature.kind_count(), 1);
     }
 }
