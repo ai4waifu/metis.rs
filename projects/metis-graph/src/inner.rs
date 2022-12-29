@@ -88,11 +88,12 @@ impl InnerTable {
         self.by_world.get(&world)?.get(&key)?.evidence.as_ref()
     }
 
-    /// Proven iff the judgment is registered for this world snapshot.
+    /// Proven iff a checked evidence AST is registered for this world snapshot.
     pub fn query(&self, world: WorldId, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> QueryStatus {
-        match self.get(world, kind, endpoints) {
-            Some(rel) => query_status_of_admitted(rel),
-            None => QueryStatus::Unknown,
+        let key = JudgmentKey { kind, left: endpoints.0, right: endpoints.1 };
+        match self.by_world.get(&world).and_then(|m| m.get(&key)) {
+            Some(entry) if entry.evidence.is_some() => query_status_of_admitted(entry.admitted),
+            _ => QueryStatus::Unknown,
         }
     }
 
@@ -119,6 +120,29 @@ mod tests {
     #[test]
     fn insert_replay_and_query_proven() {
         let mut inner = InnerTable::new();
+        let evidence = Evidence::App {
+            rule: "equal_refl".into(),
+            premises: Vec::new(),
+            conclusion: JudgmentAtom {
+                kind: EdgeKind::Equal,
+                endpoints: (NodeId(0), NodeId(0)),
+            },
+        };
+        let rel = AdmittedRelation::mint(
+            world(),
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(0)),
+            9,
+            JudgmentLane::SingleWorldReplay,
+        );
+        inner.insert_checked(rel, evidence).unwrap();
+        assert_eq!(inner.query(world(), EdgeKind::Equal, (NodeId(0), NodeId(0))), QueryStatus::Proven);
+        assert_eq!(inner.len_world(world()), 1);
+    }
+
+    #[test]
+    fn bare_insert_without_evidence_is_not_proven() {
+        let mut inner = InnerTable::new();
         let rel = AdmittedRelation::mint(
             world(),
             EdgeKind::Equal,
@@ -127,8 +151,8 @@ mod tests {
             JudgmentLane::SingleWorldReplay,
         );
         inner.insert(rel).unwrap();
-        assert_eq!(inner.query(world(), EdgeKind::Equal, (NodeId(0), NodeId(1))), QueryStatus::Proven);
-        assert_eq!(inner.len_world(world()), 1);
+        assert_eq!(inner.query(world(), EdgeKind::Equal, (NodeId(0), NodeId(1))), QueryStatus::Unknown);
+        assert!(inner.get(world(), EdgeKind::Equal, (NodeId(0), NodeId(1))).is_some());
     }
 
     #[test]
