@@ -26,6 +26,7 @@ pub mod derivation;
 pub mod derivation_rules;
 pub mod eval;
 pub mod evidence;
+pub mod evidence_dag;
 pub mod inner;
 pub mod payload;
 pub mod relation;
