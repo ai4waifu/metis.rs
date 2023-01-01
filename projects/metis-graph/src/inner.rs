@@ -3,6 +3,8 @@
 //! Stores judgments that have been minted by single-world replay. This is **not** yet
 //! a proven least fixed point `μΦ_W`; it is the runtime table CVO may consult for
 //! `QueryStatus::Proven` membership under a fixed [`WorldId`] snapshot.
+//!
+//! Checked evidence is hash-consed into an [`EvidenceDag`] so repeated subterms share nodes.
 
 use std::collections::HashMap;
 
@@ -10,7 +12,7 @@ use metis_types::{EdgeKind, MetisError, NodeId};
 
 use super::admission::{AdmittedRelation, QueryStatus, WorldId, query_status_of_admitted};
 use super::evidence::{Evidence, JudgmentAtom};
-
+use super::evidence_dag::{EvidenceDag, EvidenceId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct JudgmentKey {
@@ -36,18 +38,24 @@ impl From<AdmittedRelation> for JudgmentKey {
 #[derive(Clone, Debug, Default)]
 pub struct InnerTable {
     by_world: HashMap<WorldId, HashMap<JudgmentKey, InnerEntry>>,
+    /// Shared derivation DAG for all checked evidence in this table.
+    dag: EvidenceDag,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct InnerEntry {
     admitted: AdmittedRelation,
-    /// Living `10` evidence AST when minted via checked replay. Absent for bare bootstrap mints.
-    evidence: Option<Evidence>,
+    /// Living `10` evidence node when minted via checked replay. Absent for bare bootstrap mints.
+    evidence: Option<EvidenceId>,
 }
 
 impl InnerTable {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn evidence_dag(&self) -> &EvidenceDag {
+        &self.dag
     }
 
     /// Insert a SingleWorldReplay token without storing an evidence AST (bootstrap / tests).
@@ -57,19 +65,17 @@ impl InnerTable {
 
     /// Insert a SingleWorldReplay token with its checked evidence (`W;∅ ⊢ e : J`).
     pub fn insert_checked(&mut self, rel: AdmittedRelation, evidence: Evidence) -> Result<(), MetisError> {
-        self.insert_entry(rel, Some(evidence))
+        let id = self.dag.intern(&evidence)?;
+        self.insert_entry(rel, Some(id))
     }
 
-    fn insert_entry(&mut self, rel: AdmittedRelation, evidence: Option<Evidence>) -> Result<(), MetisError> {
+    fn insert_entry(&mut self, rel: AdmittedRelation, evidence: Option<EvidenceId>) -> Result<(), MetisError> {
         if !rel.is_trusted_path_candidate() {
             return Err(MetisError::ProofInvalid);
         }
         let world = rel.world();
         let key = JudgmentKey::from(rel);
-        self.by_world.entry(world).or_default().insert(
-            key,
-            InnerEntry { admitted: rel, evidence },
-        );
+        self.by_world.entry(world).or_default().insert(key, InnerEntry { admitted: rel, evidence });
         Ok(())
     }
 
@@ -82,13 +88,19 @@ impl InnerTable {
         self.by_world.get(&world)?.get(&key).map(|e| e.admitted)
     }
 
-    /// Evidence AST persisted with a checked Inner membership, if any.
-    pub fn evidence_of(&self, world: WorldId, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Option<&Evidence> {
+    /// Shared DAG handle for a checked Inner membership, if any.
+    pub fn evidence_id_of(&self, world: WorldId, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Option<EvidenceId> {
         let key = JudgmentKey { kind, left: endpoints.0, right: endpoints.1 };
-        self.by_world.get(&world)?.get(&key)?.evidence.as_ref()
+        self.by_world.get(&world)?.get(&key)?.evidence
     }
 
-    /// Proven iff a checked evidence AST is registered for this world snapshot.
+    /// Expand persisted evidence for a checked Inner membership, if any.
+    pub fn evidence_of(&self, world: WorldId, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> Option<Evidence> {
+        let id = self.evidence_id_of(world, kind, endpoints)?;
+        self.dag.expand(id).ok()
+    }
+
+    /// Proven iff a checked evidence node is registered for this world snapshot.
     pub fn query(&self, world: WorldId, kind: EdgeKind, endpoints: (NodeId, NodeId)) -> QueryStatus {
         let key = JudgmentKey { kind, left: endpoints.0, right: endpoints.1 };
         match self.by_world.get(&world).and_then(|m| m.get(&key)) {
@@ -110,8 +122,9 @@ impl InnerTable {
 mod tests {
     use super::*;
     use crate::admission::JudgmentLane;
+    use crate::derivation_rules::EQUAL_TRANSITIVITY;
     use core::num::NonZeroU32;
-    use metis_types::IslandId;
+    use metis_types::{EdgeId, IslandId};
 
     fn world() -> WorldId {
         WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 1 }
@@ -190,7 +203,34 @@ mod tests {
         inner.insert_checked(rel, evidence.clone()).unwrap();
         assert_eq!(
             inner.evidence_of(world(), EdgeKind::Equal, (NodeId(0), NodeId(0))),
-            Some(&evidence)
+            Some(evidence)
+        );
+    }
+
+    #[test]
+    fn repeated_checked_inserts_share_dag_nodes() {
+        let mut inner = InnerTable::new();
+        let leaf = Evidence::Gen { edge: EdgeId(3) };
+        let shared = Evidence::App {
+            rule: EQUAL_TRANSITIVITY.into(),
+            premises: vec![leaf.clone(), leaf],
+            conclusion: JudgmentAtom {
+                kind: EdgeKind::Equal,
+                endpoints: (NodeId(0), NodeId(2)),
+            },
+        };
+        let w1 = world();
+        let w2 = WorldId { island: w1.island, version: 2 };
+        let r1 = AdmittedRelation::mint(w1, EdgeKind::Equal, (NodeId(0), NodeId(2)), 1, JudgmentLane::SingleWorldReplay);
+        let r2 = AdmittedRelation::mint(w2, EdgeKind::Equal, (NodeId(0), NodeId(2)), 2, JudgmentLane::SingleWorldReplay);
+        inner.insert_checked(r1, shared.clone()).unwrap();
+        let before = inner.evidence_dag().len();
+        inner.insert_checked(r2, shared).unwrap();
+        // Second insert reuses Gen + App nodes — DAG length must not grow.
+        assert_eq!(inner.evidence_dag().len(), before);
+        assert_eq!(
+            inner.evidence_id_of(w1, EdgeKind::Equal, (NodeId(0), NodeId(2))),
+            inner.evidence_id_of(w2, EdgeKind::Equal, (NodeId(0), NodeId(2)))
         );
     }
 }
