@@ -472,6 +472,14 @@ impl IslandStore {
         &self.inner
     }
 
+    /// Seed generating Equal edges into bootstrap `Inner(W)` as `gen` evidence (`Φ_W⁰`).
+    pub fn seed_inner_equal_generators(&mut self, island: IslandId) -> Result<usize, MetisError> {
+        let world = self.get(island)?.world_id(island);
+        // Split borrows: graph lives in the island map, Inner is a sibling field.
+        let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
+        metis_graph::closure::seed_equal_generators(graph, world, &mut self.inner)
+    }
+
     /// Replay a declared two-premise transform and register it in bootstrap `Inner(W)`.
     pub fn admit_two_premise(
         &mut self,

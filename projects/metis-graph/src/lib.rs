@@ -20,6 +20,7 @@ use athena_graph::{
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 pub mod admission;
+pub mod closure;
 pub mod conflict;
 pub mod connection;
 pub mod derivation;
@@ -277,6 +278,17 @@ impl Graph {
     pub fn is_judgment(&self, id: EdgeId) -> Result<bool, MetisError> {
         let meta = self.edge_meta.get(&id).ok_or(MetisError::EdgeNotFound)?;
         Ok(!meta.structural)
+    }
+
+    /// All judgment edges as `(edge, from, kind, to)` — generators for `Φ_W`.
+    pub fn judgment_edges(&self) -> Vec<(EdgeId, NodeId, EdgeKind, NodeId)> {
+        let mut out = Vec::new();
+        for &eid in self.edge_meta.keys() {
+            let Ok(true) = self.is_judgment(eid) else { continue };
+            let Ok((from, kind, to)) = self.edge(eid) else { continue };
+            out.push((eid, from, kind, to));
+        }
+        out
     }
 
     /// Payload written onto the ordinary graph edge (mirrors sidecar meta).
