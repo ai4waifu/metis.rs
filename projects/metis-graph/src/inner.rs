@@ -113,6 +113,26 @@ impl InnerTable {
         self.by_world.get(&world).map(|m| m.len()).unwrap_or(0)
     }
 
+    /// Snapshot Equal atoms currently in Inner for `world`, with expanded evidence.
+    pub fn equal_memberships(&self, world: WorldId) -> Vec<(JudgmentAtom, Evidence)> {
+        let Some(map) = self.by_world.get(&world) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (key, entry) in map {
+            if key.kind != EdgeKind::Equal {
+                continue;
+            }
+            let Some(eid) = entry.evidence else { continue };
+            let Ok(evidence) = self.dag.expand(eid) else { continue };
+            out.push((
+                JudgmentAtom { kind: EdgeKind::Equal, endpoints: (key.left, key.right) },
+                evidence,
+            ));
+        }
+        out
+    }
+
     pub fn is_empty(&self) -> bool {
         self.by_world.values().all(|m| m.is_empty())
     }

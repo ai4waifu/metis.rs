@@ -480,6 +480,20 @@ impl IslandStore {
         metis_graph::closure::seed_equal_generators(graph, world, &mut self.inner)
     }
 
+    /// One Equal `Φ_W` step (symmetry + transitivity) on bootstrap `Inner(W)`.
+    pub fn phi_inner_equal_step(&mut self, island: IslandId) -> Result<usize, MetisError> {
+        let world = self.get(island)?.world_id(island);
+        let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
+        metis_graph::closure::phi_equal_step(graph, world, &mut self.inner)
+    }
+
+    /// Seed then iterate Equal `Φ_W` steps until fixed point or `max_steps`.
+    pub fn saturate_inner_equal(&mut self, island: IslandId, max_steps: u32) -> Result<usize, MetisError> {
+        let world = self.get(island)?.world_id(island);
+        let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
+        metis_graph::closure::saturate_equal_inner(graph, world, &mut self.inner, max_steps)
+    }
+
     /// Replay a declared two-premise transform and register it in bootstrap `Inner(W)`.
     pub fn admit_two_premise(
         &mut self,
