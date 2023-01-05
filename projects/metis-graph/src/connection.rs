@@ -12,7 +12,23 @@ use std::collections::HashMap;
 
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, JudgmentLane, WorldId};
+use super::admission::{AdmittedRelation, JudgmentLane, QueryStatus, WorldId, query_status_of_admitted};
+
+/// Living `12` transport-preservation witness `π_T`.
+///
+/// Opaque and currently uninhabited from public API: bootstrap cannot mint a witness.
+/// Trusted transport requires this token; without it only Outer bootstrap transport exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TransportWitness {
+    _private: (),
+}
+
+impl TransportWitness {
+    /// Bootstrap cannot construct `π_T`. Always fails until a preservation theorem is available.
+    pub fn try_mint_bootstrap() -> Result<Self, MetisError> {
+        Err(MetisError::ProofInvalid)
+    }
+}
 
 /// Declared strength of a connection candidate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -168,6 +184,32 @@ pub fn bootstrap_transport_relation(
 ) -> Result<AdmittedRelation, MetisError> {
     let (_tgt_kind, adm) = transport_mapped(conn, relation, kind)?;
     Ok(adm)
+}
+
+/// Trusted-path transport under a Living `12` `π_T` witness.
+///
+/// Unreachable in bootstrap because [`TransportWitness::try_mint_bootstrap`] always fails.
+/// When a witness exists, this remints the mapped token on the SingleWorldReplay lane.
+pub fn transport_relation_trusted(
+    conn: &AdmittedConnection,
+    relation: AdmittedRelation,
+    kind: EdgeKind,
+    witness: TransportWitness,
+) -> Result<AdmittedRelation, MetisError> {
+    let _ = witness;
+    let (_tgt_kind, outer) = transport_mapped(conn, relation, kind)?;
+    Ok(AdmittedRelation::mint(
+        outer.world(),
+        outer.kind(),
+        outer.endpoints(),
+        outer.evidence_tag(),
+        JudgmentLane::SingleWorldReplay,
+    ))
+}
+
+/// Query status for a transport result. Bootstrap Outer tokens stay non-Proven.
+pub fn transport_query_status(rel: AdmittedRelation) -> QueryStatus {
+    query_status_of_admitted(rel)
 }
 
 /// Bootstrap Outer transport that also asserts a mapped judgment edge into `target`.
@@ -602,5 +644,39 @@ mod tests {
         assert_eq!(left.relation_map, right.relation_map);
         assert_eq!(left.object_map.get(&NodeId(0)), Some(&NodeId(3)));
         assert_eq!(left.relation_map.get(&EdgeKind::Equal), Some(&EdgeKind::Custom(9)));
+    }
+
+    #[test]
+    fn bootstrap_cannot_mint_transport_witness() {
+        assert_eq!(
+            TransportWitness::try_mint_bootstrap().unwrap_err(),
+            MetisError::ProofInvalid
+        );
+    }
+
+    #[test]
+    fn bootstrap_transport_token_is_not_proven() {
+        let src = world(1, 1);
+        let tgt = world(2, 1);
+        let conn = admit_connection(&CandidateConnection {
+            source: src,
+            target: tgt,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(0), NodeId(10)), (NodeId(1), NodeId(11))]),
+            relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::Equal)]),
+            lossy: false,
+        })
+        .unwrap();
+        let rel = AdmittedRelation::mint(
+            src,
+            EdgeKind::Equal,
+            (NodeId(0), NodeId(1)),
+            7,
+            JudgmentLane::SingleWorldReplay,
+        );
+        let moved = bootstrap_transport_relation(&conn, rel, EdgeKind::Equal).unwrap();
+        assert_eq!(moved.lane(), JudgmentLane::BootstrapOuterTransport);
+        assert_eq!(transport_query_status(moved), QueryStatus::Unknown);
+        assert!(!moved.is_trusted_path_candidate());
     }
 }
