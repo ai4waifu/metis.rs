@@ -718,6 +718,40 @@ mod tests {
         let (st, adm) = store.search_admit_equal(right, a2, b2).unwrap();
         assert_eq!(st, metis_graph::admission::QueryStatus::Proven);
         assert!(adm.is_some());
+        // Outer transport token itself must not be a trusted-path candidate.
+        assert_eq!(moved.lane(), metis_graph::admission::JudgmentLane::BootstrapOuterTransport);
+        assert!(!moved.is_trusted_path_candidate());
+        assert_eq!(
+            metis_graph::connection::transport_query_status(moved),
+            metis_graph::admission::QueryStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn saturate_inner_equal_closes_path() {
+        let mut store = IslandStore::new();
+        store.open_staging("eq").unwrap();
+        store.declare_generating_kind(EdgeKind::Equal).unwrap();
+        let (a, b, c) = {
+            let st = store.staging_mut().unwrap();
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            let c = st.graph.intern_label(b"c").unwrap();
+            (a, b, c)
+        };
+        store.assert_generating(a, EdgeKind::Equal, b).unwrap();
+        store.assert_generating(b, EdgeKind::Equal, c).unwrap();
+        let id = store.accept_staging("Path").unwrap();
+        let n = store.saturate_inner_equal(id, 8).unwrap();
+        assert!(n >= 2);
+        assert_eq!(
+            store.query_inner_equal(id, a, c).unwrap(),
+            metis_graph::admission::QueryStatus::Proven
+        );
+        assert_eq!(
+            store.query_inner_equal(id, c, a).unwrap(),
+            metis_graph::admission::QueryStatus::Proven
+        );
     }
 
     #[test]
