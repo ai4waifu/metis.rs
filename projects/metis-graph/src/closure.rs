@@ -1,6 +1,6 @@
 //! Bootstrap `Φ_W` / `Inner(W)` seeding (Living `10` least-fixed-point slice).
 //!
-//! Full `μΦ_W` saturation is not claimed. This module admits generating Equal edges
+//! Full `μΦ_W` saturation is not claimed. This module admits generating judgment edges
 //! as `gen` evidence into [`super::inner::InnerTable`] — the `G_W` base of `Φ_W(X)` —
 //! and applies one Equal symmetry / transitivity layer as a finite `Φ_W` step.
 
@@ -10,19 +10,21 @@ use super::admission::WorldId;
 use super::derivation_rules::{EQUAL_SYMMETRY, EQUAL_TRANSITIVITY};
 use super::evidence::{Evidence, JudgmentAtom, replay_evidence};
 use super::inner::InnerTable;
+use super::rules::RelationSignature;
 use super::Graph;
 
-/// Seed `Φ_W⁰` for Equal: every judgment `Equal` edge becomes `gen` evidence in Inner.
+/// Seed `Φ_W⁰`: every judgment edge whose kind is allowed by `signature` becomes `gen` evidence.
 ///
 /// Skips atoms already present. Returns how many new Inner memberships were added.
-pub fn seed_equal_generators(
+pub fn seed_declared_generators(
     graph: &Graph,
     world: WorldId,
+    signature: &RelationSignature,
     inner: &mut InnerTable,
 ) -> Result<usize, MetisError> {
     let mut added = 0;
     for (eid, from, kind, to) in graph.judgment_edges() {
-        if kind != EdgeKind::Equal {
+        if !signature.allows(kind) {
             continue;
         }
         let atom = JudgmentAtom { kind, endpoints: (from, to) };
@@ -35,6 +37,17 @@ pub fn seed_equal_generators(
         added += 1;
     }
     Ok(added)
+}
+
+/// Seed `Φ_W⁰` for Equal only (compat wrapper around [`seed_declared_generators`]).
+pub fn seed_equal_generators(
+    graph: &Graph,
+    world: WorldId,
+    inner: &mut InnerTable,
+) -> Result<usize, MetisError> {
+    let mut sig = RelationSignature::new();
+    sig.declare_kind(EdgeKind::Equal);
+    seed_declared_generators(graph, world, &sig, inner)
 }
 
 /// One Equal `Φ_W` step: add missing symmetry and two-premise transitivity conclusions.
@@ -117,11 +130,29 @@ pub fn saturate_equal_inner(
 mod tests {
     use super::*;
     use crate::admission::QueryStatus;
+    use crate::rules::RelationSignature;
     use core::num::NonZeroU32;
     use metis_types::IslandId;
 
     fn world() -> WorldId {
         WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 1 }
+    }
+
+    #[test]
+    fn seed_declared_generators_includes_custom_kinds() {
+        let mut g = Graph::new();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        g.assert(a, EdgeKind::Equal, b).unwrap();
+        g.assert(a, EdgeKind::Custom(3), b).unwrap();
+        let mut sig = RelationSignature::new();
+        sig.declare_kind(EdgeKind::Equal);
+        sig.declare_kind(EdgeKind::Custom(3));
+        let mut inner = InnerTable::new();
+        let w = world();
+        assert_eq!(seed_declared_generators(&g, w, &sig, &mut inner).unwrap(), 2);
+        assert_eq!(inner.query(w, EdgeKind::Equal, (a, b)), QueryStatus::Proven);
+        assert_eq!(inner.query(w, EdgeKind::Custom(3), (a, b)), QueryStatus::Proven);
     }
 
     #[test]

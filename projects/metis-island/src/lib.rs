@@ -480,6 +480,20 @@ impl IslandStore {
         metis_graph::closure::seed_equal_generators(graph, world, &mut self.inner)
     }
 
+    /// Seed all signature-declared generating kinds into bootstrap `Inner(W)`.
+    pub fn seed_inner_declared_generators(&mut self, island: IslandId) -> Result<usize, MetisError> {
+        let world = self.get(island)?.world_id(island);
+        let sig = self
+            .islands
+            .get(&island)
+            .ok_or(MetisError::IslandNotFound)?
+            .rules
+            .signature
+            .clone();
+        let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
+        metis_graph::closure::seed_declared_generators(graph, world, &sig, &mut self.inner)
+    }
+
     /// One Equal `Φ_W` step (symmetry + transitivity) on bootstrap `Inner(W)`.
     pub fn phi_inner_equal_step(&mut self, island: IslandId) -> Result<usize, MetisError> {
         let world = self.get(island)?.world_id(island);
