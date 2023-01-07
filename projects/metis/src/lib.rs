@@ -9,7 +9,10 @@ pub use metis_graph::{
         QueryStatus, WorldId, query_status_of_admitted, unknown_if_missing,
     },
     conflict::{Incompatibility, detect_judgment_conflict, query_under_incompatibility},
-    closure::{phi_equal_step, saturate_equal_inner, seed_declared_generators, seed_equal_generators},
+    closure::{
+        phi_equal_step, phi_rule_table_step, saturate_equal_inner, saturate_rule_table_inner,
+        seed_declared_generators, seed_equal_generators,
+    },
     connection::{
         AdmittedConnection, CandidateConnection, ConnectionClass, TransportWitness, admit_connection,
         bidirectional_skeleton, bootstrap_transport_relation, bootstrap_transport_relation_asserting,

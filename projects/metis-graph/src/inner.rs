@@ -115,18 +115,40 @@ impl InnerTable {
 
     /// Snapshot Equal atoms currently in Inner for `world`, with expanded evidence.
     pub fn equal_memberships(&self, world: WorldId) -> Vec<(JudgmentAtom, Evidence)> {
+        self.memberships_of(world, EdgeKind::Equal)
+    }
+
+    /// Snapshot checked atoms of `kind` in Inner for `world`.
+    pub fn memberships_of(&self, world: WorldId, kind: EdgeKind) -> Vec<(JudgmentAtom, Evidence)> {
         let Some(map) = self.by_world.get(&world) else {
             return Vec::new();
         };
         let mut out = Vec::new();
         for (key, entry) in map {
-            if key.kind != EdgeKind::Equal {
+            if key.kind != kind {
                 continue;
             }
             let Some(eid) = entry.evidence else { continue };
             let Ok(evidence) = self.dag.expand(eid) else { continue };
             out.push((
-                JudgmentAtom { kind: EdgeKind::Equal, endpoints: (key.left, key.right) },
+                JudgmentAtom { kind, endpoints: (key.left, key.right) },
+                evidence,
+            ));
+        }
+        out
+    }
+
+    /// Snapshot all checked atoms in Inner for `world`.
+    pub fn memberships(&self, world: WorldId) -> Vec<(JudgmentAtom, Evidence)> {
+        let Some(map) = self.by_world.get(&world) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (key, entry) in map {
+            let Some(eid) = entry.evidence else { continue };
+            let Ok(evidence) = self.dag.expand(eid) else { continue };
+            out.push((
+                JudgmentAtom { kind: key.kind, endpoints: (key.left, key.right) },
                 evidence,
             ));
         }

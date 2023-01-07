@@ -508,6 +508,32 @@ impl IslandStore {
         metis_graph::closure::saturate_equal_inner(graph, world, &mut self.inner, max_steps)
     }
 
+    /// One rule-table `Φ_W` step using declared transforms with builtin replay support.
+    pub fn phi_inner_rule_table_step(&mut self, island: IslandId) -> Result<usize, MetisError> {
+        let world = self.get(island)?.world_id(island);
+        let rules = self
+            .islands
+            .get(&island)
+            .ok_or(MetisError::IslandNotFound)?
+            .rules
+            .clone();
+        let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
+        metis_graph::closure::phi_rule_table_step(graph, world, &rules, &mut self.inner)
+    }
+
+    /// Seed declared generators then alternate Equal / rule-table phi until fixed or capped.
+    pub fn saturate_inner_rule_table(&mut self, island: IslandId, max_steps: u32) -> Result<usize, MetisError> {
+        let world = self.get(island)?.world_id(island);
+        let rules = self
+            .islands
+            .get(&island)
+            .ok_or(MetisError::IslandNotFound)?
+            .rules
+            .clone();
+        let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
+        metis_graph::closure::saturate_rule_table_inner(graph, world, &rules, &mut self.inner, max_steps)
+    }
+
     /// Replay a declared two-premise transform and register it in bootstrap `Inner(W)`.
     pub fn admit_two_premise(
         &mut self,

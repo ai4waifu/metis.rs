@@ -7,10 +7,11 @@
 use metis_types::{EdgeKind, MetisError};
 
 use super::admission::WorldId;
-use super::derivation_rules::{EQUAL_SYMMETRY, EQUAL_TRANSITIVITY};
+use super::derivation_rules::{EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, is_builtin_rule};
 use super::evidence::{Evidence, JudgmentAtom, replay_evidence};
 use super::inner::InnerTable;
-use super::rules::RelationSignature;
+use super::rules::{RelationSignature, RuleTable};
+use super::transform::{TransformationInstance, TransformationSchema};
 use super::Graph;
 
 /// Seed `Φ_W⁰`: every judgment edge whose kind is allowed by `signature` becomes `gen` evidence.
@@ -126,6 +127,107 @@ pub fn saturate_equal_inner(
     Ok(total)
 }
 
+/// One `Φ_W` step over declared two-premise transforms whose rule names are builtin.
+///
+/// Premises are taken from Inner memberships (not fresh graph search). Unknown rule names
+/// are skipped — search may propose them later once replay support exists.
+pub fn phi_rule_table_step(
+    graph: &Graph,
+    world: WorldId,
+    rules: &RuleTable,
+    inner: &mut InnerTable,
+) -> Result<usize, MetisError> {
+    let mut added = 0;
+    for schema in &rules.transforms {
+        if !is_builtin_rule(&schema.name) {
+            continue;
+        }
+        added += admit_schema_from_inner(graph, world, schema, inner)?;
+    }
+    Ok(added)
+}
+
+fn admit_schema_from_inner(
+    graph: &Graph,
+    world: WorldId,
+    schema: &TransformationSchema,
+    inner: &mut InnerTable,
+) -> Result<usize, MetisError> {
+    let lefts = inner.memberships_of(world, schema.premise_a.kind);
+    let rights = inner.memberships_of(world, schema.premise_b.kind);
+    let mut added = 0;
+    for (a, ea) in &lefts {
+        for (b, eb) in &rights {
+            let Some(inst) = chain_instance(schema, a, b) else {
+                continue;
+            };
+            let concl = JudgmentAtom {
+                kind: schema.conclusion_kind,
+                endpoints: inst.conclusion,
+            };
+            if inner.contains_atom(world, concl) {
+                continue;
+            }
+            let app = Evidence::App {
+                rule: schema.name.clone(),
+                premises: vec![ea.clone(), eb.clone()],
+                conclusion: concl,
+            };
+            match replay_evidence(graph, world, &app, &[]) {
+                Ok(admitted) => {
+                    inner.insert_checked(admitted, app)?;
+                    added += 1;
+                }
+                Err(MetisError::ProofInvalid) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(added)
+}
+
+fn chain_instance(
+    schema: &TransformationSchema,
+    a: &JudgmentAtom,
+    b: &JudgmentAtom,
+) -> Option<TransformationInstance> {
+    let (x, y1) = a.endpoints;
+    let (y2, z) = b.endpoints;
+    if y1 != y2 {
+        return None;
+    }
+    let inst = TransformationInstance {
+        premise_a: (x, y1),
+        premise_b: (y2, z),
+        conclusion: (x, z),
+    };
+    if schema.matches_instance(&inst) {
+        Some(inst)
+    } else {
+        None
+    }
+}
+
+/// Seed declared generators, then alternate Equal phi and rule-table phi until fixed or capped.
+pub fn saturate_rule_table_inner(
+    graph: &Graph,
+    world: WorldId,
+    rules: &RuleTable,
+    inner: &mut InnerTable,
+    max_steps: u32,
+) -> Result<usize, MetisError> {
+    let mut total = seed_declared_generators(graph, world, &rules.signature, inner)?;
+    for _ in 0..max_steps {
+        let mut n = phi_equal_step(graph, world, inner)?;
+        n += phi_rule_table_step(graph, world, rules, inner)?;
+        total += n;
+        if n == 0 {
+            break;
+        }
+    }
+    Ok(total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +301,31 @@ mod tests {
         let w = world();
         saturate_equal_inner(&g, w, &mut inner, 8).unwrap();
         assert_eq!(inner.query(w, EdgeKind::Equal, (a, c)), QueryStatus::Proven);
+        assert_eq!(inner.query(w, EdgeKind::Equal, (c, a)), QueryStatus::Proven);
+    }
+
+    #[test]
+    fn rule_table_phi_admits_transitivity_from_inner() {
+        use crate::rules::RuleTable;
+        use crate::transform::TransformationSchema;
+
+        let mut g = Graph::new();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        let c = g.intern_label(b"c").unwrap();
+        g.assert(a, EdgeKind::Equal, b).unwrap();
+        g.assert(b, EdgeKind::Equal, c).unwrap();
+        let mut rules = RuleTable::default();
+        rules.declare_kind(EdgeKind::Equal);
+        rules.add_transform(TransformationSchema::equal_transitivity());
+        let mut inner = InnerTable::new();
+        let w = world();
+        seed_declared_generators(&g, w, &rules.signature, &mut inner).unwrap();
+        // Only generators — no symmetry yet. Rule-table phi should still close a→c.
+        let n = phi_rule_table_step(&g, w, &rules, &mut inner).unwrap();
+        assert!(n >= 1);
+        assert_eq!(inner.query(w, EdgeKind::Equal, (a, c)), QueryStatus::Proven);
+        saturate_rule_table_inner(&g, w, &rules, &mut inner, 8).unwrap();
         assert_eq!(inner.query(w, EdgeKind::Equal, (c, a)), QueryStatus::Proven);
     }
 }
