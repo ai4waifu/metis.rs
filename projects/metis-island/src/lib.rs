@@ -543,8 +543,14 @@ impl IslandStore {
     ) -> Result<metis_graph::admission::AdmittedRelation, MetisError> {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
-        let (rel, evidence) =
-            metis_graph::transform::replay_two_premise_checked(&entry.graph, world, schema, inst)?;
+        let registry = metis_graph::derivation_rules::registry_from_rule_table(&entry.rules);
+        let (rel, evidence) = metis_graph::transform::replay_two_premise_checked_with(
+            &entry.graph,
+            world,
+            schema,
+            inst,
+            &registry,
+        )?;
         self.inner.insert_checked(rel, evidence)?;
         Ok(rel)
     }

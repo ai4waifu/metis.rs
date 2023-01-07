@@ -7,8 +7,8 @@
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 use super::admission::{AdmittedRelation, WorldId};
-use super::derivation_rules::EQUAL_TRANSITIVITY;
-use super::evidence::{Evidence, JudgmentAtom, replay_evidence};
+use super::derivation_rules::{EQUAL_TRANSITIVITY, DerivationRegistry};
+use super::evidence::{Evidence, JudgmentAtom, replay_evidence_with};
 use super::Graph;
 
 /// Pattern for one premise judgment: `kind(from, to)` with optional fixed endpoints.
@@ -49,16 +49,12 @@ impl TransformationSchema {
         }
     }
 
-    /// Check that an instance matches this schema's shape (shared middle node for transitivity).
+    /// Check that an instance matches this schema's shape (shared middle node for chain rules).
     pub fn matches_instance(&self, inst: &TransformationInstance) -> bool {
-        if self.name == EQUAL_TRANSITIVITY {
-            let (x, y1) = inst.premise_a;
-            let (y2, z) = inst.premise_b;
-            let (cx, cz) = inst.conclusion;
-            return y1 == y2 && cx == x && cz == z;
-        }
-        // Generic: just require declared kinds; endpoint wiring left to replay against the graph.
-        true
+        let (x, y1) = inst.premise_a;
+        let (y2, z) = inst.premise_b;
+        let (cx, cz) = inst.conclusion;
+        y1 == y2 && cx == x && cz == z
     }
 }
 
@@ -109,8 +105,19 @@ pub fn replay_two_premise_checked(
     schema: &TransformationSchema,
     inst: &TransformationInstance,
 ) -> Result<(AdmittedRelation, Evidence), MetisError> {
+    replay_two_premise_checked_with(graph, world, schema, inst, &DerivationRegistry::builtins())
+}
+
+/// Replay with an explicit derivation registry (builtins + custom chains).
+pub fn replay_two_premise_checked_with(
+    graph: &Graph,
+    world: WorldId,
+    schema: &TransformationSchema,
+    inst: &TransformationInstance,
+    registry: &DerivationRegistry,
+) -> Result<(AdmittedRelation, Evidence), MetisError> {
     let evidence = evidence_from_two_premise(graph, schema, inst)?;
-    let admitted = replay_evidence(graph, world, &evidence, &[])?;
+    let admitted = replay_evidence_with(graph, world, &evidence, &[], registry)?;
     Ok((admitted, evidence))
 }
 

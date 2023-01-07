@@ -28,11 +28,12 @@ pub use metis_graph::{
         form_eval_candidate, may_request_admission, refuse_eval_as_equal,
     },
     derivation_rules::{
-        EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, apply_builtin_rule, builtin_rule_names, is_builtin_rule,
+        EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, ChainRule, DerivationRegistry,
+        apply_builtin_rule, builtin_rule_names, is_builtin_rule, registry_from_rule_table,
     },
     evidence::{
         CheckedDerivation, Evidence, JudgmentAtom, concluded_judgment, evidence_from_equal_steps, height,
-        replay_checked_derivation, replay_evidence, validate_finite,
+        replay_checked_derivation, replay_evidence, replay_evidence_with, validate_finite,
     },
     evidence_dag::{EvidenceDag, EvidenceId},
     inner::InnerTable,
@@ -40,6 +41,7 @@ pub use metis_graph::{
     rules::{RelationSignature, RuleTable},
     transform::{
         PremisePattern, TransformationInstance, TransformationSchema, evidence_from_two_premise, replay_two_premise,
+        replay_two_premise_checked, replay_two_premise_checked_with,
     },
 };
 

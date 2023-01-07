@@ -1,11 +1,14 @@
-//! Builtin derivation rule table for evidence replay (Living `10` finite DAG slice).
+//! Derivation rule registry for evidence replay (Living `10` finite DAG slice).
 //!
-//! Search proposes `app(ρ, …)` by name. Replay looks up `ρ` here instead of an open-ended
-//! match — the first general rule table for trusted-path EQ scaffolding.
+//! Search proposes `app(ρ, …)` by name. Replay looks up `ρ` in builtins first, then in
+//! registered two-premise chain rules (shared middle endpoint).
+
+use std::collections::HashMap;
 
 use metis_types::{EdgeKind, MetisError};
 
 use super::evidence::JudgmentAtom;
+use super::transform::TransformationSchema;
 
 /// Reflexivity: `Equal(x, x)` with zero premises.
 pub const EQUAL_REFL: &str = "equal_refl";
@@ -21,6 +24,100 @@ pub fn builtin_rule_names() -> &'static [&'static str] {
 
 pub fn is_builtin_rule(name: &str) -> bool {
     builtin_rule_names().contains(&name)
+}
+
+/// Two-premise chain rule: `R(x,y)` and `S(y,z)` ⇒ `T(x,z)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainRule {
+    pub name: String,
+    pub premise_a: EdgeKind,
+    pub premise_b: EdgeKind,
+    pub conclusion: EdgeKind,
+}
+
+impl ChainRule {
+    /// Build a chain rule from an unconstrained two-premise schema.
+    pub fn from_schema(schema: &TransformationSchema) -> Result<Self, MetisError> {
+        if schema.name.is_empty() {
+            return Err(MetisError::ProofInvalid);
+        }
+        if schema.premise_a.from.is_some()
+            || schema.premise_a.to.is_some()
+            || schema.premise_b.from.is_some()
+            || schema.premise_b.to.is_some()
+        {
+            // Fixed-endpoint patterns need a richer rule shape — not auto-registered.
+            return Err(MetisError::ProofInvalid);
+        }
+        Ok(Self {
+            name: schema.name.clone(),
+            premise_a: schema.premise_a.kind,
+            premise_b: schema.premise_b.kind,
+            conclusion: schema.conclusion_kind,
+        })
+    }
+}
+
+/// Builtin EQ rules plus island-declared chain rules.
+#[derive(Clone, Debug, Default)]
+pub struct DerivationRegistry {
+    chains: HashMap<String, ChainRule>,
+}
+
+impl DerivationRegistry {
+    pub fn builtins() -> Self {
+        Self::default()
+    }
+
+    /// Register a custom chain rule. Builtin names and duplicates are rejected.
+    pub fn register_chain(&mut self, rule: ChainRule) -> Result<(), MetisError> {
+        if rule.name.is_empty() || is_builtin_rule(&rule.name) {
+            return Err(MetisError::InvalidHandle);
+        }
+        if self.chains.contains_key(&rule.name) {
+            return Err(MetisError::InvalidHandle);
+        }
+        self.chains.insert(rule.name.clone(), rule);
+        Ok(())
+    }
+
+    pub fn has_rule(&self, name: &str) -> bool {
+        is_builtin_rule(name) || self.chains.contains_key(name)
+    }
+
+    pub fn chain(&self, name: &str) -> Option<&ChainRule> {
+        self.chains.get(name)
+    }
+
+    /// Apply builtin or registered chain rule to already-replayed premises.
+    pub fn apply(
+        &self,
+        name: &str,
+        premises: &[JudgmentAtom],
+        conclusion: JudgmentAtom,
+    ) -> Result<JudgmentAtom, MetisError> {
+        if is_builtin_rule(name) {
+            return apply_builtin_rule(name, premises, conclusion);
+        }
+        let rule = self.chains.get(name).ok_or(MetisError::ProofInvalid)?;
+        if premises.len() != 2 {
+            return Err(MetisError::ProofInvalid);
+        }
+        let j0 = premises[0];
+        let j1 = premises[1];
+        if j0.kind != rule.premise_a || j1.kind != rule.premise_b {
+            return Err(MetisError::ProofInvalid);
+        }
+        let (x, y1) = j0.endpoints;
+        let (y2, z) = j1.endpoints;
+        if y1 != y2 {
+            return Err(MetisError::ProofInvalid);
+        }
+        if conclusion.kind != rule.conclusion || conclusion.endpoints != (x, z) {
+            return Err(MetisError::ProofInvalid);
+        }
+        Ok(conclusion)
+    }
 }
 
 /// Check that `premises` (already replayed) justify `conclusion` under builtin rule `name`.
@@ -77,6 +174,20 @@ pub fn apply_builtin_rule(
     }
 }
 
+/// Build a registry from a [`super::rules::RuleTable`]: builtins + auto chain rules for transforms.
+pub fn registry_from_rule_table(rules: &super::rules::RuleTable) -> DerivationRegistry {
+    let mut reg = DerivationRegistry::builtins();
+    for schema in &rules.transforms {
+        if is_builtin_rule(&schema.name) {
+            continue;
+        }
+        if let Ok(chain) = ChainRule::from_schema(schema) {
+            let _ = reg.register_chain(chain);
+        }
+    }
+    reg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +206,33 @@ mod tests {
     fn unknown_rule_rejected() {
         let j = JudgmentAtom { kind: EdgeKind::Equal, endpoints: (NodeId(0), NodeId(0)) };
         assert!(apply_builtin_rule("nope", &[], j).is_err());
+        assert!(DerivationRegistry::builtins().apply("nope", &[], j).is_err());
+    }
+
+    #[test]
+    fn custom_chain_rule_replays() {
+        let mut reg = DerivationRegistry::builtins();
+        reg.register_chain(ChainRule {
+            name: "in_compose".into(),
+            premise_a: EdgeKind::In,
+            premise_b: EdgeKind::In,
+            conclusion: EdgeKind::In,
+        })
+        .unwrap();
+        let p0 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(1)) };
+        let p1 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(1), NodeId(2)) };
+        let conc = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(2)) };
+        assert_eq!(reg.apply("in_compose", &[p0, p1], conc).unwrap(), conc);
+        assert!(reg.has_rule("in_compose"));
+        assert_eq!(
+            reg.register_chain(ChainRule {
+                name: "in_compose".into(),
+                premise_a: EdgeKind::In,
+                premise_b: EdgeKind::In,
+                conclusion: EdgeKind::In,
+            })
+            .unwrap_err(),
+            MetisError::InvalidHandle
+        );
     }
 }

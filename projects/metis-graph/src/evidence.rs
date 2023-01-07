@@ -10,9 +10,7 @@
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 use super::admission::{AdmittedRelation, JudgmentLane, WorldId};
-use super::derivation_rules::{
-    EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, apply_builtin_rule,
-};
+use super::derivation_rules::{EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, DerivationRegistry};
 use super::Graph;
 
 /// Atomic judgment `R(p, q)` (binary foundation slice).
@@ -165,14 +163,26 @@ pub fn evidence_from_equal_steps(
 /// Replay evidence under world `W` with local hypothesis set `gamma`.
 ///
 /// Empty `gamma` is the trusted-path case `W;∅ ⊢ e : J`.
+/// Uses the builtin EQ registry only.
 pub fn replay_evidence(
     graph: &Graph,
     world: WorldId,
     evidence: &Evidence,
     gamma: &[JudgmentAtom],
 ) -> Result<AdmittedRelation, MetisError> {
+    replay_evidence_with(graph, world, evidence, gamma, &DerivationRegistry::builtins())
+}
+
+/// Like [`replay_evidence`], but applies rules from `registry` (builtins + custom chains).
+pub fn replay_evidence_with(
+    graph: &Graph,
+    world: WorldId,
+    evidence: &Evidence,
+    gamma: &[JudgmentAtom],
+    registry: &DerivationRegistry,
+) -> Result<AdmittedRelation, MetisError> {
     validate_finite(evidence)?;
-    let conclusion = replay_under(graph, evidence, gamma)?;
+    let conclusion = replay_under(graph, evidence, gamma, registry)?;
     let tag = fingerprint_evidence(world, evidence, conclusion);
     Ok(AdmittedRelation::mint(
         world,
@@ -196,11 +206,15 @@ pub fn replay_checked_derivation(
     Ok(admitted)
 }
 
-fn replay_under(graph: &Graph, evidence: &Evidence, gamma: &[JudgmentAtom]) -> Result<JudgmentAtom, MetisError> {
+fn replay_under(
+    graph: &Graph,
+    evidence: &Evidence,
+    gamma: &[JudgmentAtom],
+    registry: &DerivationRegistry,
+) -> Result<JudgmentAtom, MetisError> {
     match evidence {
         Evidence::Gen { edge } => {
             let atom = concluded_judgment(graph, evidence)?;
-            // Gen must cite an existing judgment edge (already checked).
             let _ = edge;
             Ok(atom)
         }
@@ -213,9 +227,9 @@ fn replay_under(graph: &Graph, evidence: &Evidence, gamma: &[JudgmentAtom]) -> R
         Evidence::App { rule, premises, conclusion } => {
             let mut premise_atoms = Vec::with_capacity(premises.len());
             for p in premises {
-                premise_atoms.push(replay_under(graph, p, gamma)?);
+                premise_atoms.push(replay_under(graph, p, gamma, registry)?);
             }
-            apply_builtin_rule(rule, &premise_atoms, *conclusion)
+            registry.apply(rule, &premise_atoms, *conclusion)
         }
     }
 }

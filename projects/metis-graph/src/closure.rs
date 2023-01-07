@@ -7,8 +7,10 @@
 use metis_types::{EdgeKind, MetisError};
 
 use super::admission::WorldId;
-use super::derivation_rules::{EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, is_builtin_rule};
-use super::evidence::{Evidence, JudgmentAtom, replay_evidence};
+use super::derivation_rules::{
+    EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, registry_from_rule_table,
+};
+use super::evidence::{Evidence, JudgmentAtom, replay_evidence, replay_evidence_with};
 use super::inner::InnerTable;
 use super::rules::{RelationSignature, RuleTable};
 use super::transform::{TransformationInstance, TransformationSchema};
@@ -127,7 +129,7 @@ pub fn saturate_equal_inner(
     Ok(total)
 }
 
-/// One `Φ_W` step over declared two-premise transforms whose rule names are builtin.
+/// One `Φ_W` step over declared two-premise transforms known to the derivation registry.
 ///
 /// Premises are taken from Inner memberships (not fresh graph search). Unknown rule names
 /// are skipped — search may propose them later once replay support exists.
@@ -137,12 +139,13 @@ pub fn phi_rule_table_step(
     rules: &RuleTable,
     inner: &mut InnerTable,
 ) -> Result<usize, MetisError> {
+    let registry = registry_from_rule_table(rules);
     let mut added = 0;
     for schema in &rules.transforms {
-        if !is_builtin_rule(&schema.name) {
+        if !registry.has_rule(&schema.name) {
             continue;
         }
-        added += admit_schema_from_inner(graph, world, schema, inner)?;
+        added += admit_schema_from_inner(graph, world, schema, &registry, inner)?;
     }
     Ok(added)
 }
@@ -151,6 +154,7 @@ fn admit_schema_from_inner(
     graph: &Graph,
     world: WorldId,
     schema: &TransformationSchema,
+    registry: &super::derivation_rules::DerivationRegistry,
     inner: &mut InnerTable,
 ) -> Result<usize, MetisError> {
     let lefts = inner.memberships_of(world, schema.premise_a.kind);
@@ -173,7 +177,7 @@ fn admit_schema_from_inner(
                 premises: vec![ea.clone(), eb.clone()],
                 conclusion: concl,
             };
-            match replay_evidence(graph, world, &app, &[]) {
+            match replay_evidence_with(graph, world, &app, &[], registry) {
                 Ok(admitted) => {
                     inner.insert_checked(admitted, app)?;
                     added += 1;
@@ -327,5 +331,30 @@ mod tests {
         assert_eq!(inner.query(w, EdgeKind::Equal, (a, c)), QueryStatus::Proven);
         saturate_rule_table_inner(&g, w, &rules, &mut inner, 8).unwrap();
         assert_eq!(inner.query(w, EdgeKind::Equal, (c, a)), QueryStatus::Proven);
+    }
+
+    #[test]
+    fn custom_chain_transform_saturates_in_membership() {
+        use crate::rules::RuleTable;
+        use crate::transform::{PremisePattern, TransformationSchema};
+
+        let mut g = Graph::new();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        let c = g.intern_label(b"c").unwrap();
+        g.assert(a, EdgeKind::In, b).unwrap();
+        g.assert(b, EdgeKind::In, c).unwrap();
+        let mut rules = RuleTable::default();
+        rules.declare_kind(EdgeKind::In);
+        rules.add_transform(TransformationSchema {
+            name: "in_compose".into(),
+            premise_a: PremisePattern { kind: EdgeKind::In, from: None, to: None },
+            premise_b: PremisePattern { kind: EdgeKind::In, from: None, to: None },
+            conclusion_kind: EdgeKind::In,
+        });
+        let mut inner = InnerTable::new();
+        let w = world();
+        saturate_rule_table_inner(&g, w, &rules, &mut inner, 4).unwrap();
+        assert_eq!(inner.query(w, EdgeKind::In, (a, c)), QueryStatus::Proven);
     }
 }
