@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use metis_types::EdgeKind;
 
-use super::derivation_rules::is_builtin_rule;
+use super::derivation_rules::{FlipRule, is_builtin_rule};
 use super::transform::TransformationSchema;
 
 /// Declared relation kinds that may appear as generators (axioms) in a world.
@@ -54,11 +54,13 @@ impl RelationSignature {
     }
 }
 
-/// Island-local rule table: signature + declared transformations.
+/// Island-local rule table: signature + declared transformations + flips.
 #[derive(Clone, Debug, Default)]
 pub struct RuleTable {
     pub signature: RelationSignature,
     pub transforms: Vec<TransformationSchema>,
+    /// One-premise flip rules (`R(x,y)` ⇒ `S(y,x)`).
+    pub flips: Vec<FlipRule>,
 }
 
 impl RuleTable {
@@ -70,13 +72,21 @@ impl RuleTable {
         self.transforms.push(schema);
     }
 
+    pub fn add_flip(&mut self, rule: FlipRule) {
+        self.flips.push(rule);
+    }
+
     pub fn has_transform(&self, name: &str) -> bool {
         self.transforms.iter().any(|t| t.name == name)
     }
 
-    /// True if `name` is a builtin EQ derivation rule or a declared transform schema.
+    pub fn has_flip(&self, name: &str) -> bool {
+        self.flips.iter().any(|f| f.name == name)
+    }
+
+    /// True if `name` is a builtin EQ derivation rule or a declared transform / flip.
     pub fn has_derivation_rule(&self, name: &str) -> bool {
-        is_builtin_rule(name) || self.has_transform(name)
+        is_builtin_rule(name) || self.has_transform(name) || self.has_flip(name)
     }
 }
 

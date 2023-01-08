@@ -129,7 +129,7 @@ pub fn saturate_equal_inner(
     Ok(total)
 }
 
-/// One `Φ_W` step over declared two-premise transforms known to the derivation registry.
+/// One `Φ_W` step over declared chain transforms and one-premise flips in the registry.
 ///
 /// Premises are taken from Inner memberships (not fresh graph search). Unknown rule names
 /// are skipped — search may propose them later once replay support exists.
@@ -146,6 +146,12 @@ pub fn phi_rule_table_step(
             continue;
         }
         added += admit_schema_from_inner(graph, world, schema, &registry, inner)?;
+    }
+    for flip in &rules.flips {
+        if !registry.has_rule(&flip.name) {
+            continue;
+        }
+        added += admit_flip_from_inner(graph, world, flip, &registry, inner)?;
     }
     Ok(added)
 }
@@ -210,6 +216,47 @@ fn chain_instance(
     } else {
         None
     }
+}
+
+fn admit_flip_from_inner(
+    graph: &Graph,
+    world: WorldId,
+    flip: &super::derivation_rules::FlipRule,
+    registry: &super::derivation_rules::DerivationRegistry,
+    inner: &mut InnerTable,
+) -> Result<usize, MetisError> {
+    let members = inner.memberships_of(world, flip.premise.kind);
+    let mut added = 0;
+    for (atom, evidence) in &members {
+        if !flip.premise.matches_atom(*atom) {
+            continue;
+        }
+        let (x, y) = atom.endpoints;
+        if x == y && flip.conclusion == flip.premise.kind {
+            continue;
+        }
+        let concl = JudgmentAtom {
+            kind: flip.conclusion,
+            endpoints: (y, x),
+        };
+        if inner.contains_atom(world, concl) {
+            continue;
+        }
+        let app = Evidence::App {
+            rule: flip.name.clone(),
+            premises: vec![evidence.clone()],
+            conclusion: concl,
+        };
+        match replay_evidence_with(graph, world, &app, &[], registry) {
+            Ok(admitted) => {
+                inner.insert_checked(admitted, app)?;
+                added += 1;
+            }
+            Err(MetisError::ProofInvalid) => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(added)
 }
 
 /// Seed declared generators, then alternate Equal phi and rule-table phi until fixed or capped.

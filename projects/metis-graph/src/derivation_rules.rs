@@ -1,7 +1,7 @@
 //! Derivation rule registry for evidence replay (Living `10` finite DAG slice).
 //!
 //! Search proposes `app(ρ, …)` by name. Replay looks up `ρ` in builtins first, then in
-//! registered two-premise chain rules (shared middle endpoint, optional fixed ends).
+//! registered chain (two-premise) or flip (one-premise) rules.
 
 use std::collections::HashMap;
 
@@ -60,10 +60,30 @@ impl ChainRule {
     }
 }
 
-/// Builtin EQ rules plus island-declared chain rules.
+/// One-premise flip rule: `R(x,y)` ⇒ `S(y,x)`, with optional fixed ends on the premise.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlipRule {
+    pub name: String,
+    pub premise: PremisePattern,
+    pub conclusion: EdgeKind,
+}
+
+impl FlipRule {
+    /// Symmetry-style flip over one kind with unconstrained endpoints.
+    pub fn unconstrained(name: impl Into<String>, kind: EdgeKind) -> Self {
+        Self {
+            name: name.into(),
+            premise: PremisePattern { kind, from: None, to: None },
+            conclusion: kind,
+        }
+    }
+}
+
+/// Builtin EQ rules plus island-declared chain / flip rules.
 #[derive(Clone, Debug, Default)]
 pub struct DerivationRegistry {
     chains: HashMap<String, ChainRule>,
+    flips: HashMap<String, FlipRule>,
 }
 
 impl DerivationRegistry {
@@ -71,27 +91,41 @@ impl DerivationRegistry {
         Self::default()
     }
 
-    /// Register a custom chain rule. Builtin names and duplicates are rejected.
+    fn name_taken(&self, name: &str) -> bool {
+        is_builtin_rule(name) || self.chains.contains_key(name) || self.flips.contains_key(name)
+    }
+
+    /// Register a custom chain rule. Builtin / duplicate names are rejected.
     pub fn register_chain(&mut self, rule: ChainRule) -> Result<(), MetisError> {
-        if rule.name.is_empty() || is_builtin_rule(&rule.name) {
-            return Err(MetisError::InvalidHandle);
-        }
-        if self.chains.contains_key(&rule.name) {
+        if rule.name.is_empty() || self.name_taken(&rule.name) {
             return Err(MetisError::InvalidHandle);
         }
         self.chains.insert(rule.name.clone(), rule);
         Ok(())
     }
 
+    /// Register a custom one-premise flip rule. Builtin / duplicate names are rejected.
+    pub fn register_flip(&mut self, rule: FlipRule) -> Result<(), MetisError> {
+        if rule.name.is_empty() || self.name_taken(&rule.name) {
+            return Err(MetisError::InvalidHandle);
+        }
+        self.flips.insert(rule.name.clone(), rule);
+        Ok(())
+    }
+
     pub fn has_rule(&self, name: &str) -> bool {
-        is_builtin_rule(name) || self.chains.contains_key(name)
+        self.name_taken(name)
     }
 
     pub fn chain(&self, name: &str) -> Option<&ChainRule> {
         self.chains.get(name)
     }
 
-    /// Apply builtin or registered chain rule to already-replayed premises.
+    pub fn flip(&self, name: &str) -> Option<&FlipRule> {
+        self.flips.get(name)
+    }
+
+    /// Apply builtin, chain, or flip rule to already-replayed premises.
     pub fn apply(
         &self,
         name: &str,
@@ -101,24 +135,40 @@ impl DerivationRegistry {
         if is_builtin_rule(name) {
             return apply_builtin_rule(name, premises, conclusion);
         }
-        let rule = self.chains.get(name).ok_or(MetisError::ProofInvalid)?;
-        if premises.len() != 2 {
-            return Err(MetisError::ProofInvalid);
+        if let Some(rule) = self.chains.get(name) {
+            if premises.len() != 2 {
+                return Err(MetisError::ProofInvalid);
+            }
+            let j0 = premises[0];
+            let j1 = premises[1];
+            if !rule.premise_a.matches_atom(j0) || !rule.premise_b.matches_atom(j1) {
+                return Err(MetisError::ProofInvalid);
+            }
+            let (x, y1) = j0.endpoints;
+            let (y2, z) = j1.endpoints;
+            if y1 != y2 {
+                return Err(MetisError::ProofInvalid);
+            }
+            if conclusion.kind != rule.conclusion || conclusion.endpoints != (x, z) {
+                return Err(MetisError::ProofInvalid);
+            }
+            return Ok(conclusion);
         }
-        let j0 = premises[0];
-        let j1 = premises[1];
-        if !rule.premise_a.matches_atom(j0) || !rule.premise_b.matches_atom(j1) {
-            return Err(MetisError::ProofInvalid);
+        if let Some(rule) = self.flips.get(name) {
+            if premises.len() != 1 {
+                return Err(MetisError::ProofInvalid);
+            }
+            let j0 = premises[0];
+            if !rule.premise.matches_atom(j0) {
+                return Err(MetisError::ProofInvalid);
+            }
+            let (x, y) = j0.endpoints;
+            if conclusion.kind != rule.conclusion || conclusion.endpoints != (y, x) {
+                return Err(MetisError::ProofInvalid);
+            }
+            return Ok(conclusion);
         }
-        let (x, y1) = j0.endpoints;
-        let (y2, z) = j1.endpoints;
-        if y1 != y2 {
-            return Err(MetisError::ProofInvalid);
-        }
-        if conclusion.kind != rule.conclusion || conclusion.endpoints != (x, z) {
-            return Err(MetisError::ProofInvalid);
-        }
-        Ok(conclusion)
+        Err(MetisError::ProofInvalid)
     }
 }
 
@@ -176,7 +226,7 @@ pub fn apply_builtin_rule(
     }
 }
 
-/// Build a registry from a [`super::rules::RuleTable`]: builtins + auto chain rules for transforms.
+/// Build a registry from a [`super::rules::RuleTable`]: builtins + chains + flips.
 pub fn registry_from_rule_table(rules: &super::rules::RuleTable) -> DerivationRegistry {
     let mut reg = DerivationRegistry::builtins();
     for schema in &rules.transforms {
@@ -186,6 +236,12 @@ pub fn registry_from_rule_table(rules: &super::rules::RuleTable) -> DerivationRe
         if let Ok(chain) = ChainRule::from_schema(schema) {
             let _ = reg.register_chain(chain);
         }
+    }
+    for flip in &rules.flips {
+        if is_builtin_rule(&flip.name) {
+            continue;
+        }
+        let _ = reg.register_flip(flip.clone());
     }
     reg
 }
@@ -244,5 +300,15 @@ mod tests {
         assert_eq!(reg.apply("from_root", &[ok0, ok1], conc).unwrap(), conc);
         let bad0 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(3), NodeId(1)) };
         assert!(reg.apply("from_root", &[bad0, ok1], conc).is_err());
+    }
+
+    #[test]
+    fn custom_flip_rule_replays() {
+        let mut reg = DerivationRegistry::builtins();
+        reg.register_flip(FlipRule::unconstrained("in_sym", EdgeKind::In)).unwrap();
+        let p0 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(1)) };
+        let conc = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(1), NodeId(0)) };
+        assert_eq!(reg.apply("in_sym", &[p0], conc).unwrap(), conc);
+        assert!(reg.apply("in_sym", &[p0, p0], conc).is_err());
     }
 }
