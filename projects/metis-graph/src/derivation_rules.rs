@@ -1,14 +1,14 @@
 //! Derivation rule registry for evidence replay (Living `10` finite DAG slice).
 //!
 //! Search proposes `app(ρ, …)` by name. Replay looks up `ρ` in builtins first, then in
-//! registered two-premise chain rules (shared middle endpoint).
+//! registered two-premise chain rules (shared middle endpoint, optional fixed ends).
 
 use std::collections::HashMap;
 
 use metis_types::{EdgeKind, MetisError};
 
 use super::evidence::JudgmentAtom;
-use super::transform::TransformationSchema;
+use super::transform::{PremisePattern, TransformationSchema};
 
 /// Reflexivity: `Equal(x, x)` with zero premises.
 pub const EQUAL_REFL: &str = "equal_refl";
@@ -26,35 +26,37 @@ pub fn is_builtin_rule(name: &str) -> bool {
     builtin_rule_names().contains(&name)
 }
 
-/// Two-premise chain rule: `R(x,y)` and `S(y,z)` ⇒ `T(x,z)`.
+/// Two-premise chain rule: `R(x,y)` and `S(y,z)` ⇒ `T(x,z)`, with optional fixed ends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChainRule {
     pub name: String,
-    pub premise_a: EdgeKind,
-    pub premise_b: EdgeKind,
+    pub premise_a: PremisePattern,
+    pub premise_b: PremisePattern,
     pub conclusion: EdgeKind,
 }
 
 impl ChainRule {
-    /// Build a chain rule from an unconstrained two-premise schema.
+    /// Build a chain rule from a two-premise schema (fixed endpoints preserved).
     pub fn from_schema(schema: &TransformationSchema) -> Result<Self, MetisError> {
         if schema.name.is_empty() {
             return Err(MetisError::ProofInvalid);
         }
-        if schema.premise_a.from.is_some()
-            || schema.premise_a.to.is_some()
-            || schema.premise_b.from.is_some()
-            || schema.premise_b.to.is_some()
-        {
-            // Fixed-endpoint patterns need a richer rule shape — not auto-registered.
-            return Err(MetisError::ProofInvalid);
-        }
         Ok(Self {
             name: schema.name.clone(),
-            premise_a: schema.premise_a.kind,
-            premise_b: schema.premise_b.kind,
+            premise_a: schema.premise_a,
+            premise_b: schema.premise_b,
             conclusion: schema.conclusion_kind,
         })
+    }
+
+    /// Unconstrained chain over a single kind (compat helper for tests / simple declares).
+    pub fn unconstrained(name: impl Into<String>, kind: EdgeKind, conclusion: EdgeKind) -> Self {
+        Self {
+            name: name.into(),
+            premise_a: PremisePattern { kind, from: None, to: None },
+            premise_b: PremisePattern { kind, from: None, to: None },
+            conclusion,
+        }
     }
 }
 
@@ -105,7 +107,7 @@ impl DerivationRegistry {
         }
         let j0 = premises[0];
         let j1 = premises[1];
-        if j0.kind != rule.premise_a || j1.kind != rule.premise_b {
+        if !rule.premise_a.matches_atom(j0) || !rule.premise_b.matches_atom(j1) {
             return Err(MetisError::ProofInvalid);
         }
         let (x, y1) = j0.endpoints;
@@ -212,27 +214,35 @@ mod tests {
     #[test]
     fn custom_chain_rule_replays() {
         let mut reg = DerivationRegistry::builtins();
-        reg.register_chain(ChainRule {
-            name: "in_compose".into(),
-            premise_a: EdgeKind::In,
-            premise_b: EdgeKind::In,
-            conclusion: EdgeKind::In,
-        })
-        .unwrap();
+        reg.register_chain(ChainRule::unconstrained("in_compose", EdgeKind::In, EdgeKind::In))
+            .unwrap();
         let p0 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(1)) };
         let p1 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(1), NodeId(2)) };
         let conc = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(2)) };
         assert_eq!(reg.apply("in_compose", &[p0, p1], conc).unwrap(), conc);
         assert!(reg.has_rule("in_compose"));
         assert_eq!(
-            reg.register_chain(ChainRule {
-                name: "in_compose".into(),
-                premise_a: EdgeKind::In,
-                premise_b: EdgeKind::In,
-                conclusion: EdgeKind::In,
-            })
-            .unwrap_err(),
+            reg.register_chain(ChainRule::unconstrained("in_compose", EdgeKind::In, EdgeKind::In))
+                .unwrap_err(),
             MetisError::InvalidHandle
         );
+    }
+
+    #[test]
+    fn fixed_endpoint_chain_rejects_wrong_source() {
+        let mut reg = DerivationRegistry::builtins();
+        reg.register_chain(ChainRule {
+            name: "from_root".into(),
+            premise_a: PremisePattern { kind: EdgeKind::In, from: Some(NodeId(0)), to: None },
+            premise_b: PremisePattern { kind: EdgeKind::In, from: None, to: None },
+            conclusion: EdgeKind::In,
+        })
+        .unwrap();
+        let ok0 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(1)) };
+        let ok1 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(1), NodeId(2)) };
+        let conc = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(2)) };
+        assert_eq!(reg.apply("from_root", &[ok0, ok1], conc).unwrap(), conc);
+        let bad0 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(3), NodeId(1)) };
+        assert!(reg.apply("from_root", &[bad0, ok1], conc).is_err());
     }
 }

@@ -21,6 +21,27 @@ pub struct PremisePattern {
     pub to: Option<NodeId>,
 }
 
+impl PremisePattern {
+    /// True when `atom` has this kind and satisfies any fixed endpoints.
+    pub fn matches_atom(self, atom: JudgmentAtom) -> bool {
+        if atom.kind != self.kind {
+            return false;
+        }
+        let (from, to) = atom.endpoints;
+        if let Some(f) = self.from {
+            if from != f {
+                return false;
+            }
+        }
+        if let Some(t) = self.to {
+            if to != t {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// Declared two-premise transformation schema (object-logic rule shape under Core).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransformationSchema {
@@ -49,12 +70,21 @@ impl TransformationSchema {
         }
     }
 
-    /// Check that an instance matches this schema's shape (shared middle node for chain rules).
+    /// Check chain shape plus optional fixed endpoints on each premise.
     pub fn matches_instance(&self, inst: &TransformationInstance) -> bool {
         let (x, y1) = inst.premise_a;
         let (y2, z) = inst.premise_b;
         let (cx, cz) = inst.conclusion;
-        y1 == y2 && cx == x && cz == z
+        if !(y1 == y2 && cx == x && cz == z) {
+            return false;
+        }
+        self.premise_a.matches_atom(JudgmentAtom {
+            kind: self.premise_a.kind,
+            endpoints: (x, y1),
+        }) && self.premise_b.matches_atom(JudgmentAtom {
+            kind: self.premise_b.kind,
+            endpoints: (y2, z),
+        })
     }
 }
 

@@ -357,4 +357,34 @@ mod tests {
         saturate_rule_table_inner(&g, w, &rules, &mut inner, 4).unwrap();
         assert_eq!(inner.query(w, EdgeKind::In, (a, c)), QueryStatus::Proven);
     }
+
+    #[test]
+    fn fixed_endpoint_transform_only_fires_from_root() {
+        use crate::rules::RuleTable;
+        use crate::transform::{PremisePattern, TransformationSchema};
+
+        let mut g = Graph::new();
+        let root = g.intern_label(b"root").unwrap();
+        let a = g.intern_label(b"a").unwrap();
+        let b = g.intern_label(b"b").unwrap();
+        let c = g.intern_label(b"c").unwrap();
+        g.assert(root, EdgeKind::In, a).unwrap();
+        g.assert(a, EdgeKind::In, b).unwrap();
+        g.assert(b, EdgeKind::In, c).unwrap();
+        let mut rules = RuleTable::default();
+        rules.declare_kind(EdgeKind::In);
+        rules.add_transform(TransformationSchema {
+            name: "from_root".into(),
+            premise_a: PremisePattern { kind: EdgeKind::In, from: Some(root), to: None },
+            premise_b: PremisePattern { kind: EdgeKind::In, from: None, to: None },
+            conclusion_kind: EdgeKind::In,
+        });
+        let mut inner = InnerTable::new();
+        let w = world();
+        seed_declared_generators(&g, w, &rules.signature, &mut inner).unwrap();
+        phi_rule_table_step(&g, w, &rules, &mut inner).unwrap();
+        assert_eq!(inner.query(w, EdgeKind::In, (root, b)), QueryStatus::Proven);
+        // a→c would require premise_a from `a`, which the fixed-from-root rule rejects.
+        assert_eq!(inner.query(w, EdgeKind::In, (a, c)), QueryStatus::Unknown);
+    }
 }
