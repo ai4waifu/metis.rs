@@ -69,7 +69,7 @@ pub struct IslandStore {
     staging: Option<(IslandId, Island)>,
     /// Candidate connections only — never auto-admitted as Galois.
     connections: Vec<CandidateConnection>,
-    /// Core-admitted world morphisms (inner-world transport authority).
+    /// Registered M-Link structures \(C_m\). Not transport theorems (`π_T` still absent).
     admitted_connections: Vec<AdmittedConnection>,
     /// Core-admitted worlds minted when staging is accepted or an island is registered.
     admitted_worlds: Vec<AdmittedWorld>,
@@ -287,11 +287,16 @@ impl IslandStore {
         &self.admitted_connections
     }
 
-    /// Promote a registered candidate at `index` into an admitted world morphism.
+    /// Alias for [`Self::admitted_connections`]: registered M-Link structures only.
+    pub fn registered_m_links(&self) -> &[AdmittedConnection] {
+        self.admitted_connections()
+    }
+
+    /// Promote a candidate into a registered M-Link structure \(C_m\).
     ///
-    /// Rejects bidirectional skeletons and Galois claims. Worlds must still match
-    /// the store's current island versions. Target world must not be sealed.
-    pub fn admit_registered_connection(&mut self, index: usize) -> Result<usize, MetisError> {
+    /// Rejects bidirectional skeletons and Galois claims. Does **not** mint `π_T` or
+    /// authorize trusted Inner transport — only structure maps for Outer bootstrap use.
+    pub fn register_m_link(&mut self, index: usize) -> Result<usize, MetisError> {
         let candidate = self.connections.get(index).cloned().ok_or(MetisError::InvalidHandle)?;
         self.require_known_world(candidate.source)?;
         self.require_open_target(candidate.target)?;
@@ -300,20 +305,30 @@ impl IslandStore {
         Ok(self.admitted_connections.len() - 1)
     }
 
-    /// Register then immediately admit a world-morphism candidate.
-    pub fn admit_world_morphism(&mut self, candidate: CandidateConnection) -> Result<usize, MetisError> {
+    /// Legacy name for [`Self::register_m_link`].
+    pub fn admit_registered_connection(&mut self, index: usize) -> Result<usize, MetisError> {
+        self.register_m_link(index)
+    }
+
+    /// Register a world-morphism candidate as an M-Link structure (not a transport theorem).
+    pub fn register_world_morphism(&mut self, candidate: CandidateConnection) -> Result<usize, MetisError> {
         self.register_connection(candidate.clone())?;
         let idx = self.connections.len() - 1;
-        self.admit_registered_connection(idx)
+        self.register_m_link(idx)
     }
 
-    /// Admit the identity world morphism for an accepted island's current version.
+    /// Legacy name for [`Self::register_world_morphism`].
+    pub fn admit_world_morphism(&mut self, candidate: CandidateConnection) -> Result<usize, MetisError> {
+        self.register_world_morphism(candidate)
+    }
+
+    /// Register the identity M-Link for an accepted island's current version.
     pub fn admit_identity(&mut self, island: IslandId) -> Result<usize, MetisError> {
         let world = self.get(island)?.world_id(island);
-        self.admit_world_morphism(metis_graph::connection::identity_morphism(world))
+        self.register_world_morphism(metis_graph::connection::identity_morphism(world))
     }
 
-    /// Compose two admitted connections and admit the composite morphism.
+    /// Compose two registered M-Links and register the composite structure.
     pub fn admit_composed_connection(
         &mut self,
         first_index: usize,
@@ -330,10 +345,10 @@ impl IslandStore {
             .cloned()
             .ok_or(MetisError::InvalidHandle)?;
         let candidate = metis_graph::connection::compose_connections(&first, &second)?;
-        self.admit_world_morphism(candidate)
+        self.register_world_morphism(candidate)
     }
 
-    /// Bootstrap Outer transport along an admitted connection index.
+    /// Bootstrap Outer transport along a registered M-Link index.
     ///
     /// Not Living `10` trusted path. Target world must not be sealed.
     pub fn transport_along(

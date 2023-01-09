@@ -1,12 +1,13 @@
-//! Island / world connection contracts (Living constitution).
+//! Island / world connection contracts (Living constitution · Living `12` / `13`).
 //!
-//! A connection is first a **theory / world morphism**. Surface `A <-> B` only yields a
-//! bidirectional skeleton. Galois / isomorphism / adjunction require extra evidence and
-//! must not be inferred from the bidirectional keyword alone.
+//! Three statuses must stay distinct:
+//! 1. [`CandidateConnection`] — outer proposal only
+//! 2. [`AdmittedConnection`] / registered M-Link structure \(C_m\) — maps objects/kinds
+//! 3. [`TransportWitness`] `π_T` — required for trusted transport into Inner
 //!
-//! **Trusted-path gate (Living `10` / `12`)**: structural M-Link admission and transport APIs
-//! below are **bootstrap Outer** until a transport-preservation witness (`pi_T`) exists.
-//! They must not mint Living-10 trusted Inner judgments for CVO.
+//! Surface `A <-> B` only yields a bidirectional skeleton. Galois / isomorphism /
+//! adjunction require extra evidence and must not be inferred from the keyword alone.
+//! Bootstrap transport APIs mint [`JudgmentLane::BootstrapOuterTransport`] only.
 
 use std::collections::HashMap;
 
@@ -55,7 +56,12 @@ pub struct CandidateConnection {
     pub lossy: bool,
 }
 
-/// Opaque admitted connection. Only Core mint paths may create it.
+/// Registered M-Link structure \(C_m\) (Living `12`).
+///
+/// This is **not** a transport-preservation theorem. Bootstrap Outer transport may use the
+/// maps; trusted Inner transport still requires [`TransportWitness`].
+///
+/// Alias: [`RegisteredMLink`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdmittedConnection {
     source: WorldId,
@@ -66,6 +72,9 @@ pub struct AdmittedConnection {
     relation_map: HashMap<EdgeKind, EdgeKind>,
     lossy: bool,
 }
+
+/// Clearer name for [`AdmittedConnection`]: registered structure, not trusted transport.
+pub type RegisteredMLink = AdmittedConnection;
 
 impl AdmittedConnection {
     pub(crate) fn mint(

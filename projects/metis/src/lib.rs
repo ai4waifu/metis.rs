@@ -14,10 +14,11 @@ pub use metis_graph::{
         seed_declared_generators, seed_equal_generators,
     },
     connection::{
-        AdmittedConnection, CandidateConnection, ConnectionClass, TransportWitness, admit_connection,
-        bidirectional_skeleton, bootstrap_transport_relation, bootstrap_transport_relation_asserting,
-        compose_connections, identity_morphism, refuse_galois_without_proof, transport_query_status,
-        transport_relation, transport_relation_asserting, transport_relation_trusted, validate_candidate,
+        AdmittedConnection, CandidateConnection, ConnectionClass, RegisteredMLink, TransportWitness,
+        admit_connection, bidirectional_skeleton, bootstrap_transport_relation,
+        bootstrap_transport_relation_asserting, compose_connections, identity_morphism,
+        refuse_galois_without_proof, transport_query_status, transport_relation,
+        transport_relation_asserting, transport_relation_trusted, validate_candidate,
     },
     derivation::{
         DerivationDiagram, replay_equal_derivation, replay_equal_derivation_checked, search_and_admit_equal,
