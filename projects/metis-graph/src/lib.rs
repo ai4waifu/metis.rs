@@ -88,6 +88,15 @@ fn metis_semantics() -> GraphSemantics {
     }
 }
 
+/// Directed adjacency record for O(degree) scans (Living `13` index slice).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AdjRec {
+    edge: EdgeId,
+    kind: EdgeKind,
+    neighbor: NodeId,
+    structural: bool,
+}
+
 /// Mutable working graph (staging or accepted island body before snapshot freeze).
 pub struct Graph {
     builder: GraphBuilder<NodePayload, EdgePayload>,
@@ -95,6 +104,10 @@ pub struct Graph {
     labels: HashMap<Vec<u8>, NodeId>,
     label_of: HashMap<NodeId, Vec<u8>>,
     edge_meta: HashMap<EdgeId, EdgePayload>,
+    /// Outgoing adjacency by source node (maintained on every edge insert).
+    out_adj: HashMap<NodeId, Vec<AdjRec>>,
+    /// Incoming adjacency by target node (maintained on every edge insert).
+    in_adj: HashMap<NodeId, Vec<AdjRec>>,
     heap: Rc<RefCell<GcHeap>>,
     /// When true, mutating APIs reject. Query / replay stay available (Living `10` snapshot).
     snapshot_frozen: bool,
@@ -118,6 +131,8 @@ impl Graph {
             labels: HashMap::new(),
             label_of: HashMap::new(),
             edge_meta: HashMap::new(),
+            out_adj: HashMap::new(),
+            in_adj: HashMap::new(),
             heap,
             snapshot_frozen: false,
         }
@@ -182,6 +197,18 @@ impl Graph {
     fn add_base_edge(&mut self, from: NodeId, to: NodeId, payload: EdgePayload) -> Result<EdgeId, MetisError> {
         let eid = self.builder.add_edge(from, to, payload).ok_or(MetisError::GraphRejected)?;
         self.edge_meta.insert(eid, payload);
+        self.out_adj.entry(from).or_default().push(AdjRec {
+            edge: eid,
+            kind: payload.kind,
+            neighbor: to,
+            structural: payload.structural,
+        });
+        self.in_adj.entry(to).or_default().push(AdjRec {
+            edge: eid,
+            kind: payload.kind,
+            neighbor: from,
+            structural: payload.structural,
+        });
         Ok(eid)
     }
 
@@ -237,17 +264,31 @@ impl Graph {
     ) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
-        for (s, t, eid) in self.builder.graph().edges() {
-            if s != id {
-                continue;
-            }
-            let meta = self.edge_meta.get(&eid).ok_or(MetisError::EdgeNotFound)?;
+        for rec in self.out_adj.get(&id).into_iter().flatten() {
             if let Some(want) = structural {
-                if meta.structural != want {
+                if rec.structural != want {
                     continue;
                 }
             }
-            out.push((eid, meta.kind, t));
+            out.push((rec.edge, rec.kind, rec.neighbor));
+        }
+        Ok(out)
+    }
+
+    fn incoming_filtered(
+        &self,
+        id: NodeId,
+        structural: Option<bool>,
+    ) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
+        self.ensure_known(id)?;
+        let mut out = Vec::new();
+        for rec in self.in_adj.get(&id).into_iter().flatten() {
+            if let Some(want) = structural {
+                if rec.structural != want {
+                    continue;
+                }
+            }
+            out.push((rec.edge, rec.kind, rec.neighbor));
         }
         Ok(out)
     }
@@ -260,6 +301,43 @@ impl Graph {
     /// Judgment outgoing edges only.
     pub fn judgment_outgoing(&self, id: NodeId) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
         self.outgoing_filtered(id, Some(false))
+    }
+
+    /// Judgment incoming edges only (`(edge, kind, predecessor)`).
+    pub fn judgment_incoming(&self, id: NodeId) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
+        self.incoming_filtered(id, Some(false))
+    }
+
+    /// Outgoing judgment edges of a specific kind (indexed scan, no full-graph walk).
+    pub fn judgment_outgoing_of_kind(
+        &self,
+        id: NodeId,
+        kind: EdgeKind,
+    ) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
+        self.ensure_known(id)?;
+        let mut out = Vec::new();
+        for rec in self.out_adj.get(&id).into_iter().flatten() {
+            if !rec.structural && rec.kind == kind {
+                out.push((rec.edge, rec.neighbor));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Incoming judgment edges of a specific kind (indexed scan).
+    pub fn judgment_incoming_of_kind(
+        &self,
+        id: NodeId,
+        kind: EdgeKind,
+    ) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
+        self.ensure_known(id)?;
+        let mut out = Vec::new();
+        for rec in self.in_adj.get(&id).into_iter().flatten() {
+            if !rec.structural && rec.kind == kind {
+                out.push((rec.edge, rec.neighbor));
+            }
+        }
+        Ok(out)
     }
 
     /// All outgoing edges (structural then judgment).
@@ -283,10 +361,13 @@ impl Graph {
     /// All judgment edges as `(edge, from, kind, to)` — generators for `Φ_W`.
     pub fn judgment_edges(&self) -> Vec<(EdgeId, NodeId, EdgeKind, NodeId)> {
         let mut out = Vec::new();
-        for &eid in self.edge_meta.keys() {
-            let Ok(true) = self.is_judgment(eid) else { continue };
-            let Ok((from, kind, to)) = self.edge(eid) else { continue };
-            out.push((eid, from, kind, to));
+        for (from, recs) in &self.out_adj {
+            for rec in recs {
+                if rec.structural {
+                    continue;
+                }
+                out.push((rec.edge, *from, rec.kind, rec.neighbor));
+            }
         }
         out
     }
@@ -345,23 +426,11 @@ impl Graph {
     pub fn equal_steps(&self, id: NodeId) -> Result<Vec<(Step, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
-        for (eid, kind, nxt) in self.judgment_outgoing(id)? {
-            if kind == EdgeKind::Equal {
-                out.push((Step { edge: eid, forward: true }, nxt));
-            }
+        for (eid, nxt) in self.judgment_outgoing_of_kind(id, EdgeKind::Equal)? {
+            out.push((Step { edge: eid, forward: true }, nxt));
         }
-        for (s, t, eid) in self.builder.graph().edges() {
-            if t != id {
-                continue;
-            }
-            let Some(meta) = self.edge_meta.get(&eid)
-            else {
-                continue;
-            };
-            if meta.structural || meta.kind != EdgeKind::Equal {
-                continue;
-            }
-            out.push((Step { edge: eid, forward: false }, s));
+        for (eid, pred) in self.judgment_incoming_of_kind(id, EdgeKind::Equal)? {
+            out.push((Step { edge: eid, forward: false }, pred));
         }
         Ok(out)
     }
