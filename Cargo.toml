@@ -14,7 +14,9 @@ metis-types = { path = "projects/metis-types" }
 metis-graph = { path = "projects/metis-graph" }
 metis-island = { path = "projects/metis-island" }
 metis-verify = { path = "projects/metis-verify" }
+metis-ir = { path = "projects/metis-ir" }
 metis-compile = { path = "projects/metis-compile" }
+metis-vm = { path = "projects/metis-vm" }
 metis-jit = { path = "projects/metis-jit" }
 metis = { path = "projects/metis" }
 athena-types = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }

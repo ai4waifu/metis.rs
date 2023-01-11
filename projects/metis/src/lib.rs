@@ -2,6 +2,8 @@
 
 pub use athena_gc::{GcHeap, HeapBudget};
 pub use metis_compile::{LoweringResult, compile_declarations, lower_module, parse_source};
+pub use metis_ir::{Effect, Function as IrFunction, Module as IrModule, Op, Reg, RegKind};
+pub use metis_vm::{Budget, GraphKernel, KernelView, Slot, Vm, VmError, VmStatus};
 pub use metis_graph::{
     EdgePayload, Graph, NodePayload, Step,
     admission::{

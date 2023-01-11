@@ -8,5 +8,7 @@ description = "Metis path/query JIT compile units"
 
 [dependencies]
 metis-types = { workspace = true }
+metis-ir = { workspace = true }
+metis-vm = { workspace = true }
 metis-graph = { workspace = true }
 metis-island = { workspace = true }

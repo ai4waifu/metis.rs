@@ -1,0 +1,16 @@
+[package]
+name = "metis-vm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metis register interpreter: frames, fuel, safepoint, and execution lifecycle"
+
+[dependencies]
+metis-types = { workspace = true }
+metis-ir = { workspace = true }
+metis-graph = { workspace = true }
+athena-gc = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]

@@ -11,3 +11,4 @@ oak-metis = { workspace = true }
 metis-types = { workspace = true }
 metis-island = { workspace = true }
 metis-graph = { workspace = true }
+metis-ir = { workspace = true }

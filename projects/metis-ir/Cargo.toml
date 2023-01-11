@@ -1,0 +1,13 @@
+[package]
+name = "metis-ir"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metis typed relation plans, bytecode format, and structural validation"
+
+[dependencies]
+metis-types = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]

@@ -7,6 +7,7 @@
 mod lower;
 
 pub use lower::{LoweringResult, lower_module};
+pub use metis_ir::{Function as IrFunction, Module as IrModule, Op, Reg, RegKind};
 
 use oak_metis::{Module, parse_module};
 
