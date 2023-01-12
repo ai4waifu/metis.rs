@@ -9,9 +9,11 @@ This repository is the Rust implementation workspace. Design lives outside the t
 ```text
 athena-types → athena-gc
                   ↓
-metis-types → metis-graph → metis-island → metis-verify → metis-compile → metis-jit → metis
-                                                ↑
-                                         oak-metis (AST)
+metis-types → metis-graph → metis-island → metis-verify
+                  ↓              ↓
+              metis-ir ← metis-compile ← oak-metis (AST)
+                  ↓
+              metis-vm → metis-jit → metis
 ```
 
 | Crate | Role |
@@ -21,8 +23,10 @@ metis-types → metis-graph → metis-island → metis-verify → metis-compile 
 | `metis-graph` | Relation graph, labels, judgment edges |
 | `metis-island` | Island registry and staging |
 | `metis-verify` | EQ + ZFC-lite prove/verify |
-| `metis-compile` | Run theorem scripts from island source |
-| `metis-jit` | Path/query compile units |
+| `metis-ir` | Typed relation plans and bytecode validation |
+| `metis-compile` | Parse / lower island source toward IR |
+| `metis-vm` | Register interpreter, fuel, safepoint lifecycle |
+| `metis-jit` | Path/query compile units over shared IR |
 | `oak-metis` | Island language parse (oaks) |
 | `metis` | Stable facade |
 | `metis-example` | Smoke binary |
