@@ -53,6 +53,8 @@ pub enum Effect {
 pub enum Op {
     LoadNode { dst: Reg, node: NodeId },
     LoadRelation { dst: Reg, relation: RelationId },
+    /// Load a host-table evidence handle into a register (index from prior `alloc_gen` / search).
+    LoadEvidence { dst: Reg, evidence: u64 },
     ScanOut {
         iter: Reg,
         node: Reg,
@@ -191,6 +193,12 @@ fn validate_function(f: &Function) -> Result<(), IrError> {
                     return Err(IrError::BadReg);
                 }
                 expect(*dst, RegKind::Relation)?;
+            }
+            Op::LoadEvidence { dst, .. } => {
+                if !has(*dst) {
+                    return Err(IrError::BadReg);
+                }
+                expect(*dst, RegKind::Evidence)?;
             }
             Op::ScanOut { iter, node, .. } | Op::ScanIn { iter, node, .. } => {
                 need_effect(Effect::Query)?;
