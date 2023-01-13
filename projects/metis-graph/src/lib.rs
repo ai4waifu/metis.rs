@@ -1,7 +1,7 @@
 //! Metis relation semantics on [`athena_graph`].
 //!
 //! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] with [`NodePayload`] /
-//!   [`EdgePayload`] (not CAS M-Graph).
+//!   [`EdgePayload`] (not CAS M-Graph). Indexed scans use athena `out_edges` / `in_edges`.
 //! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
 //! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
 //! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`evidence`], [`transform`], [`conflict`], [`rules`], [`eval`].
@@ -88,26 +88,12 @@ fn metis_semantics() -> GraphSemantics {
     }
 }
 
-/// Directed adjacency record for O(degree) scans (Living `13` index slice).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct AdjRec {
-    edge: EdgeId,
-    kind: EdgeKind,
-    neighbor: NodeId,
-    structural: bool,
-}
-
 /// Mutable working graph (staging or accepted island body before snapshot freeze).
 pub struct Graph {
     builder: GraphBuilder<NodePayload, EdgePayload>,
     cons: HashMap<Vec<OutKey>, NodeId>,
     labels: HashMap<Vec<u8>, NodeId>,
     label_of: HashMap<NodeId, Vec<u8>>,
-    edge_meta: HashMap<EdgeId, EdgePayload>,
-    /// Outgoing adjacency by source node (maintained on every edge insert).
-    out_adj: HashMap<NodeId, Vec<AdjRec>>,
-    /// Incoming adjacency by target node (maintained on every edge insert).
-    in_adj: HashMap<NodeId, Vec<AdjRec>>,
     heap: Rc<RefCell<GcHeap>>,
     /// When true, mutating APIs reject. Query / replay stay available (Living `10` snapshot).
     snapshot_frozen: bool,
@@ -130,9 +116,6 @@ impl Graph {
             cons: HashMap::new(),
             labels: HashMap::new(),
             label_of: HashMap::new(),
-            edge_meta: HashMap::new(),
-            out_adj: HashMap::new(),
-            in_adj: HashMap::new(),
             heap,
             snapshot_frozen: false,
         }
@@ -195,21 +178,9 @@ impl Graph {
     }
 
     fn add_base_edge(&mut self, from: NodeId, to: NodeId, payload: EdgePayload) -> Result<EdgeId, MetisError> {
-        let eid = self.builder.add_edge(from, to, payload).ok_or(MetisError::GraphRejected)?;
-        self.edge_meta.insert(eid, payload);
-        self.out_adj.entry(from).or_default().push(AdjRec {
-            edge: eid,
-            kind: payload.kind,
-            neighbor: to,
-            structural: payload.structural,
-        });
-        self.in_adj.entry(to).or_default().push(AdjRec {
-            edge: eid,
-            kind: payload.kind,
-            neighbor: from,
-            structural: payload.structural,
-        });
-        Ok(eid)
+        self.builder
+            .add_edge(from, to, payload)
+            .ok_or(MetisError::GraphRejected)
     }
 
     /// Intern a named atom. Same bytes → same [`NodeId`].
@@ -264,13 +235,13 @@ impl Graph {
     ) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
-        for rec in self.out_adj.get(&id).into_iter().flatten() {
+        for (edge, neighbor, payload) in self.builder.graph().out_edges(id) {
             if let Some(want) = structural {
-                if rec.structural != want {
+                if payload.structural != want {
                     continue;
                 }
             }
-            out.push((rec.edge, rec.kind, rec.neighbor));
+            out.push((edge, payload.kind, neighbor));
         }
         Ok(out)
     }
@@ -282,13 +253,13 @@ impl Graph {
     ) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
-        for rec in self.in_adj.get(&id).into_iter().flatten() {
+        for (edge, neighbor, payload) in self.builder.graph().in_edges(id) {
             if let Some(want) = structural {
-                if rec.structural != want {
+                if payload.structural != want {
                     continue;
                 }
             }
-            out.push((rec.edge, rec.kind, rec.neighbor));
+            out.push((edge, payload.kind, neighbor));
         }
         Ok(out)
     }
@@ -308,7 +279,7 @@ impl Graph {
         self.incoming_filtered(id, Some(false))
     }
 
-    /// Outgoing judgment edges of a specific kind (indexed scan, no full-graph walk).
+    /// Outgoing judgment edges of a specific kind (athena adjacency + payload filter).
     pub fn judgment_outgoing_of_kind(
         &self,
         id: NodeId,
@@ -316,15 +287,15 @@ impl Graph {
     ) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
-        for rec in self.out_adj.get(&id).into_iter().flatten() {
-            if !rec.structural && rec.kind == kind {
-                out.push((rec.edge, rec.neighbor));
+        for (edge, neighbor, payload) in self.builder.graph().out_edges(id) {
+            if !payload.structural && payload.kind == kind {
+                out.push((edge, neighbor));
             }
         }
         Ok(out)
     }
 
-    /// Incoming judgment edges of a specific kind (indexed scan).
+    /// Incoming judgment edges of a specific kind (athena adjacency + payload filter).
     pub fn judgment_incoming_of_kind(
         &self,
         id: NodeId,
@@ -332,9 +303,9 @@ impl Graph {
     ) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
-        for rec in self.in_adj.get(&id).into_iter().flatten() {
-            if !rec.structural && rec.kind == kind {
-                out.push((rec.edge, rec.neighbor));
+        for (edge, neighbor, payload) in self.builder.graph().in_edges(id) {
+            if !payload.structural && payload.kind == kind {
+                out.push((edge, neighbor));
             }
         }
         Ok(out)
@@ -348,33 +319,44 @@ impl Graph {
     }
 
     pub fn edge(&self, id: EdgeId) -> Result<(NodeId, EdgeKind, NodeId), MetisError> {
-        let (from, to) = self.builder.graph().edge_endpoints(id).ok_or(MetisError::EdgeNotFound)?;
-        let meta = self.edge_meta.get(&id).ok_or(MetisError::EdgeNotFound)?;
-        Ok((from, meta.kind, to))
+        let base = self.builder.graph();
+        let (from, to) = base.edge_endpoints(id).ok_or(MetisError::EdgeNotFound)?;
+        let payload = base.edge_value(id).ok_or(MetisError::EdgeNotFound)?;
+        Ok((from, payload.kind, to))
     }
 
     pub fn is_judgment(&self, id: EdgeId) -> Result<bool, MetisError> {
-        let meta = self.edge_meta.get(&id).ok_or(MetisError::EdgeNotFound)?;
-        Ok(!meta.structural)
+        let payload = self
+            .builder
+            .graph()
+            .edge_value(id)
+            .ok_or(MetisError::EdgeNotFound)?;
+        Ok(!payload.structural)
     }
 
     /// All judgment edges as `(edge, from, kind, to)` — generators for `Φ_W`.
     pub fn judgment_edges(&self) -> Vec<(EdgeId, NodeId, EdgeKind, NodeId)> {
+        let base = self.builder.graph();
         let mut out = Vec::new();
-        for (from, recs) in &self.out_adj {
-            for rec in recs {
-                if rec.structural {
-                    continue;
-                }
-                out.push((rec.edge, *from, rec.kind, rec.neighbor));
+        for (from, to, edge) in base.edges() {
+            let Some(payload) = base.edge_value(edge) else {
+                continue;
+            };
+            if payload.structural {
+                continue;
             }
+            out.push((edge, from, payload.kind, to));
         }
         out
     }
 
-    /// Payload written onto the ordinary graph edge (mirrors sidecar meta).
+    /// Payload stored on the ordinary athena edge.
     pub fn edge_payload(&self, id: EdgeId) -> Result<EdgePayload, MetisError> {
-        self.edge_meta.get(&id).copied().ok_or(MetisError::EdgeNotFound)
+        self.builder
+            .graph()
+            .edge_value(id)
+            .copied()
+            .ok_or(MetisError::EdgeNotFound)
     }
 
     pub fn node_count(&self) -> usize {

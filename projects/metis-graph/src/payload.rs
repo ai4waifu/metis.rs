@@ -1,7 +1,7 @@
 //! Payload types carried on the ordinary [`athena_graph::GraphBuilder`] base.
 //!
-//! Metis still keeps hash-cons / label sidecars. Payloads make structural vs judgment
-//! and labels visible on the athena graph itself (Living / plan ID contract).
+//! Metis keeps hash-cons / label sidecars only. Structural vs judgment flags live in
+//! [`EdgePayload`] on the athena edge table (no parallel `edge_meta` map).
 
 use metis_types::EdgeKind;
 

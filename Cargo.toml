@@ -26,6 +26,11 @@ oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
+[patch."https://github.com/ai4waifu/athena.rs.git"]
+athena-types = { path = "../athena.rs/projects/athena-types" }
+athena-gc = { path = "../athena.rs/projects/athena-gc" }
+athena-graph = { path = "../athena.rs/projects/athena-graph" }
+
 [profile.release]
 opt-level = 3
 codegen-units = 1
