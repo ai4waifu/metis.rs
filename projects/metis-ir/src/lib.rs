@@ -59,6 +59,14 @@ pub enum Op {
     GenFromEdge { dst: Reg, edge: Reg },
     /// Target endpoint of an edge Value → Node register.
     EdgeTarget { dst: Reg, edge: Reg },
+    /// Unconditional jump to instruction index (within the same function).
+    Jump { target: u32 },
+    /// If `cond` holds an empty slot (iterator exhausted after `Next`), jump; else fall through.
+    BranchIfEmpty { cond: Reg, target: u32 },
+    /// If boolean `cond` is false, jump; else fall through.
+    BranchIfFalse { cond: Reg, target: u32 },
+    /// Compare two Node registers → Bool.
+    NodesEqual { dst: Reg, left: Reg, right: Reg },
     ScanOut {
         iter: Reg,
         node: Reg,
@@ -136,6 +144,8 @@ pub enum IrError {
     RegKindMismatch,
     #[error("effect not declared")]
     UndeclaredEffect,
+    #[error("jump target out of range")]
+    BadJump,
     #[error("function has no return")]
     MissingReturn,
 }
@@ -211,6 +221,28 @@ fn validate_function(f: &Function) -> Result<(), IrError> {
             Op::EdgeTarget { dst, edge } => {
                 expect(*dst, RegKind::Node)?;
                 expect(*edge, RegKind::Value)?;
+            }
+            Op::Jump { target } => {
+                if (*target as usize) >= f.ops.len() {
+                    return Err(IrError::BadJump);
+                }
+            }
+            Op::BranchIfEmpty { cond, target } => {
+                expect(*cond, RegKind::Value)?;
+                if (*target as usize) >= f.ops.len() {
+                    return Err(IrError::BadJump);
+                }
+            }
+            Op::BranchIfFalse { cond, target } => {
+                expect(*cond, RegKind::Bool)?;
+                if (*target as usize) >= f.ops.len() {
+                    return Err(IrError::BadJump);
+                }
+            }
+            Op::NodesEqual { dst, left, right } => {
+                expect(*dst, RegKind::Bool)?;
+                expect(*left, RegKind::Node)?;
+                expect(*right, RegKind::Node)?;
             }
             Op::ScanOut { iter, node, .. } | Op::ScanIn { iter, node, .. } => {
                 need_effect(Effect::Query)?;

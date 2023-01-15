@@ -516,6 +516,24 @@ impl Vm {
                     let n = kernel.edge_target(e)?;
                     frame.set(*dst, Slot::Node(n))?;
                 }
+                Op::Jump { target } => {
+                    frame.ip = *target as usize;
+                }
+                Op::BranchIfEmpty { cond, target } => {
+                    if matches!(frame.get(*cond)?, Slot::Empty) {
+                        frame.ip = *target as usize;
+                    }
+                }
+                Op::BranchIfFalse { cond, target } => {
+                    if !expect_bool(frame.get(*cond)?)? {
+                        frame.ip = *target as usize;
+                    }
+                }
+                Op::NodesEqual { dst, left, right } => {
+                    let a = expect_node(frame.get(*left)?)?;
+                    let b = expect_node(frame.get(*right)?)?;
+                    frame.set(*dst, Slot::Bool(a == b))?;
+                }
                 Op::ScanOut {
                     iter,
                     node,
@@ -638,6 +656,14 @@ fn expect_evidence(s: &Slot) -> Result<u64, VmError> {
 fn expect_value(s: &Slot) -> Result<u64, VmError> {
     match s {
         Slot::Value(v) => Ok(*v),
+        Slot::Empty => Err(VmError::EmptyReg),
+        _ => Err(VmError::SlotMismatch),
+    }
+}
+
+fn expect_bool(s: &Slot) -> Result<bool, VmError> {
+    match s {
+        Slot::Bool(b) => Ok(*b),
         Slot::Empty => Err(VmError::EmptyReg),
         _ => Err(VmError::SlotMismatch),
     }
@@ -860,5 +886,111 @@ mod tests {
         assert_eq!(ev, &Evidence::Gen { edge: e_ab });
         let (_f, _k, to) = g.edge(e_ab).unwrap();
         assert_eq!(to, b);
+    }
+
+    #[test]
+    fn ir_nested_scan_proves_equal_transitivity_candidate() {
+        let (g, a, _b, c, _, _) = equal_chain();
+        let mut kernel = GraphKernel::new(&g, world(), 1);
+        // 0 a, 1 c, 2 iter1, 3 e1, 4 y, 5 g1, 6 iter2, 7 e2, 8 z, 9 eq, 10 g2, 11 app, 12 status
+        let module = Module {
+            entry: 0,
+            functions: vec![Function {
+                name: "join_trans".into(),
+                regs: vec![
+                    RegKind::Node,
+                    RegKind::Node,
+                    RegKind::Iterator,
+                    RegKind::Value,
+                    RegKind::Node,
+                    RegKind::Evidence,
+                    RegKind::Iterator,
+                    RegKind::Value,
+                    RegKind::Node,
+                    RegKind::Bool,
+                    RegKind::Evidence,
+                    RegKind::Evidence,
+                    RegKind::Status,
+                ],
+                effects: vec![Effect::Query, Effect::EmitCandidate],
+                ops: vec![
+                    Op::LoadNode { dst: Reg(0), node: a },
+                    Op::LoadNode { dst: Reg(1), node: c },
+                    Op::ScanOut {
+                        iter: Reg(2),
+                        node: Reg(0),
+                        relation_filter: Some(REL_EQUAL),
+                    },
+                    // 3 outer
+                    Op::Next {
+                        dst: Reg(3),
+                        iter: Reg(2),
+                    },
+                    Op::BranchIfEmpty {
+                        cond: Reg(3),
+                        target: 18,
+                    },
+                    Op::EdgeTarget {
+                        dst: Reg(4),
+                        edge: Reg(3),
+                    },
+                    Op::GenFromEdge {
+                        dst: Reg(5),
+                        edge: Reg(3),
+                    },
+                    Op::ScanOut {
+                        iter: Reg(6),
+                        node: Reg(4),
+                        relation_filter: Some(REL_EQUAL),
+                    },
+                    // 8 inner
+                    Op::Next {
+                        dst: Reg(7),
+                        iter: Reg(6),
+                    },
+                    Op::BranchIfEmpty {
+                        cond: Reg(7),
+                        target: 3,
+                    },
+                    Op::EdgeTarget {
+                        dst: Reg(8),
+                        edge: Reg(7),
+                    },
+                    Op::NodesEqual {
+                        dst: Reg(9),
+                        left: Reg(8),
+                        right: Reg(1),
+                    },
+                    Op::BranchIfFalse {
+                        cond: Reg(9),
+                        target: 8,
+                    },
+                    Op::GenFromEdge {
+                        dst: Reg(10),
+                        edge: Reg(7),
+                    },
+                    Op::BuildEvidence {
+                        dst: Reg(11),
+                        rule: RULE_EQUAL_TRANSITIVITY,
+                        evidence_regs: vec![Reg(5), Reg(10)],
+                    },
+                    Op::EmitCandidate {
+                        relation: REL_EQUAL,
+                        evidence: Reg(11),
+                    },
+                    Op::Jump { target: 19 },
+                    Op::ReturnStatus { status: Reg(12) }, // 17 unreachable pad kept for clarity
+                    Op::ReturnStatus { status: Reg(12) }, // 18 fail
+                    Op::ReturnStatus { status: Reg(12) }, // 19 success
+                ],
+            }],
+        };
+        module.validate().unwrap();
+        let mut vm = Vm::new(256);
+        assert_eq!(vm.run(&module, &mut kernel).unwrap(), VmStatus::Unknown);
+        let candidates = kernel.take_candidates();
+        assert_eq!(candidates.len(), 1);
+        let adm = replay_evidence(&g, world(), &candidates[0].evidence, &[]).unwrap();
+        assert_eq!(adm.endpoints(), (a, c));
     }
 }
