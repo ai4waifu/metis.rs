@@ -55,6 +55,10 @@ pub enum Op {
     LoadRelation { dst: Reg, relation: RelationId },
     /// Load a host-table evidence handle into a register (index from prior `alloc_gen` / search).
     LoadEvidence { dst: Reg, evidence: u64 },
+    /// `gen(edge)` from a Value register holding an [`EdgeId`] raw (`Next` yield).
+    GenFromEdge { dst: Reg, edge: Reg },
+    /// Target endpoint of an edge Value → Node register.
+    EdgeTarget { dst: Reg, edge: Reg },
     ScanOut {
         iter: Reg,
         node: Reg,
@@ -199,6 +203,14 @@ fn validate_function(f: &Function) -> Result<(), IrError> {
                     return Err(IrError::BadReg);
                 }
                 expect(*dst, RegKind::Evidence)?;
+            }
+            Op::GenFromEdge { dst, edge } => {
+                expect(*dst, RegKind::Evidence)?;
+                expect(*edge, RegKind::Value)?;
+            }
+            Op::EdgeTarget { dst, edge } => {
+                expect(*dst, RegKind::Node)?;
+                expect(*edge, RegKind::Value)?;
             }
             Op::ScanOut { iter, node, .. } | Op::ScanIn { iter, node, .. } => {
                 need_effect(Effect::Query)?;

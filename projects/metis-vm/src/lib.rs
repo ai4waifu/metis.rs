@@ -100,6 +100,8 @@ impl Frame {
 pub trait KernelView {
     fn load_node(&self, node: NodeId) -> Result<NodeId, VmError>;
     fn load_evidence(&self, evidence: u64) -> Result<u64, VmError>;
+    fn gen_from_edge(&mut self, edge: u64) -> Result<u64, VmError>;
+    fn edge_target(&self, edge: u64) -> Result<NodeId, VmError>;
     fn scan_out(
         &mut self,
         node: NodeId,
@@ -260,6 +262,15 @@ impl<'a> KernelView for GraphKernel<'a> {
             return Err(VmError::BadEvidence);
         }
         Ok(evidence)
+    }
+
+    fn gen_from_edge(&mut self, edge: u64) -> Result<u64, VmError> {
+        self.alloc_gen(EdgeId(edge))
+    }
+
+    fn edge_target(&self, edge: u64) -> Result<NodeId, VmError> {
+        let (_from, _kind, to) = self.graph.edge(EdgeId(edge))?;
+        Ok(to)
     }
 
     fn scan_out(
@@ -495,6 +506,16 @@ impl Vm {
                     let id = kernel.load_evidence(*evidence)?;
                     frame.set(*dst, Slot::Evidence(id))?;
                 }
+                Op::GenFromEdge { dst, edge } => {
+                    let e = expect_value(frame.get(*edge)?)?;
+                    let id = kernel.gen_from_edge(e)?;
+                    frame.set(*dst, Slot::Evidence(id))?;
+                }
+                Op::EdgeTarget { dst, edge } => {
+                    let e = expect_value(frame.get(*edge)?)?;
+                    let n = kernel.edge_target(e)?;
+                    frame.set(*dst, Slot::Node(n))?;
+                }
                 Op::ScanOut {
                     iter,
                     node,
@@ -609,6 +630,14 @@ fn expect_tuple(s: &Slot) -> Result<u32, VmError> {
 fn expect_evidence(s: &Slot) -> Result<u64, VmError> {
     match s {
         Slot::Evidence(e) => Ok(*e),
+        Slot::Empty => Err(VmError::EmptyReg),
+        _ => Err(VmError::SlotMismatch),
+    }
+}
+
+fn expect_value(s: &Slot) -> Result<u64, VmError> {
+    match s {
+        Slot::Value(v) => Ok(*v),
         Slot::Empty => Err(VmError::EmptyReg),
         _ => Err(VmError::SlotMismatch),
     }
@@ -782,5 +811,54 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         let adm = replay_evidence(&g, world(), &candidates[0].evidence, &[]).unwrap();
         assert_eq!(adm.endpoints(), (a, c));
+    }
+
+    #[test]
+    fn gen_from_edge_and_edge_target_from_scan() {
+        let (g, a, b, _c, e_ab, _) = equal_chain();
+        let mut kernel = GraphKernel::new(&g, world(), 1);
+        // regs: node_a, iter, edge_val, mid, gen0, status
+        let module = Module {
+            entry: 0,
+            functions: vec![Function {
+                name: "scan_gen".into(),
+                regs: vec![
+                    RegKind::Node,
+                    RegKind::Iterator,
+                    RegKind::Value,
+                    RegKind::Node,
+                    RegKind::Evidence,
+                    RegKind::Status,
+                ],
+                effects: vec![Effect::Query],
+                ops: vec![
+                    Op::LoadNode { dst: Reg(0), node: a },
+                    Op::ScanOut {
+                        iter: Reg(1),
+                        node: Reg(0),
+                        relation_filter: Some(REL_EQUAL),
+                    },
+                    Op::Next {
+                        dst: Reg(2),
+                        iter: Reg(1),
+                    },
+                    Op::EdgeTarget {
+                        dst: Reg(3),
+                        edge: Reg(2),
+                    },
+                    Op::GenFromEdge {
+                        dst: Reg(4),
+                        edge: Reg(2),
+                    },
+                    Op::ReturnStatus { status: Reg(5) },
+                ],
+            }],
+        };
+        let mut vm = Vm::new(64);
+        assert_eq!(vm.run(&module, &mut kernel).unwrap(), VmStatus::Unknown);
+        let ev = kernel.evidence(0).unwrap();
+        assert_eq!(ev, &Evidence::Gen { edge: e_ab });
+        let (_f, _k, to) = g.edge(e_ab).unwrap();
+        assert_eq!(to, b);
     }
 }
