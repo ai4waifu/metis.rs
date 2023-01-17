@@ -12,10 +12,7 @@ use metis_graph::Graph;
 use metis_ir::{Effect, Function, IrError, Module, Op, Reg, RegKind, RelationId, RuleId};
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
-/// Foundation relation id for judgment `Equal` scans.
-pub const REL_EQUAL: RelationId = RelationId(1);
-/// Foundation rule id for Equal transitivity (`equal_transitivity`).
-pub const RULE_EQUAL_TRANSITIVITY: RuleId = RuleId(1);
+pub use metis_ir::{equal_transitivity_join_plan, REL_EQUAL, RULE_EQUAL_TRANSITIVITY};
 
 /// Query / plan outcome surface aligned with Metis four-state answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -892,99 +889,7 @@ mod tests {
     fn ir_nested_scan_proves_equal_transitivity_candidate() {
         let (g, a, _b, c, _, _) = equal_chain();
         let mut kernel = GraphKernel::new(&g, world(), 1);
-        // 0 a, 1 c, 2 iter1, 3 e1, 4 y, 5 g1, 6 iter2, 7 e2, 8 z, 9 eq, 10 g2, 11 app, 12 status
-        let module = Module {
-            entry: 0,
-            functions: vec![Function {
-                name: "join_trans".into(),
-                regs: vec![
-                    RegKind::Node,
-                    RegKind::Node,
-                    RegKind::Iterator,
-                    RegKind::Value,
-                    RegKind::Node,
-                    RegKind::Evidence,
-                    RegKind::Iterator,
-                    RegKind::Value,
-                    RegKind::Node,
-                    RegKind::Bool,
-                    RegKind::Evidence,
-                    RegKind::Evidence,
-                    RegKind::Status,
-                ],
-                effects: vec![Effect::Query, Effect::EmitCandidate],
-                ops: vec![
-                    Op::LoadNode { dst: Reg(0), node: a },
-                    Op::LoadNode { dst: Reg(1), node: c },
-                    Op::ScanOut {
-                        iter: Reg(2),
-                        node: Reg(0),
-                        relation_filter: Some(REL_EQUAL),
-                    },
-                    // 3 outer
-                    Op::Next {
-                        dst: Reg(3),
-                        iter: Reg(2),
-                    },
-                    Op::BranchIfEmpty {
-                        cond: Reg(3),
-                        target: 18,
-                    },
-                    Op::EdgeTarget {
-                        dst: Reg(4),
-                        edge: Reg(3),
-                    },
-                    Op::GenFromEdge {
-                        dst: Reg(5),
-                        edge: Reg(3),
-                    },
-                    Op::ScanOut {
-                        iter: Reg(6),
-                        node: Reg(4),
-                        relation_filter: Some(REL_EQUAL),
-                    },
-                    // 8 inner
-                    Op::Next {
-                        dst: Reg(7),
-                        iter: Reg(6),
-                    },
-                    Op::BranchIfEmpty {
-                        cond: Reg(7),
-                        target: 3,
-                    },
-                    Op::EdgeTarget {
-                        dst: Reg(8),
-                        edge: Reg(7),
-                    },
-                    Op::NodesEqual {
-                        dst: Reg(9),
-                        left: Reg(8),
-                        right: Reg(1),
-                    },
-                    Op::BranchIfFalse {
-                        cond: Reg(9),
-                        target: 8,
-                    },
-                    Op::GenFromEdge {
-                        dst: Reg(10),
-                        edge: Reg(7),
-                    },
-                    Op::BuildEvidence {
-                        dst: Reg(11),
-                        rule: RULE_EQUAL_TRANSITIVITY,
-                        evidence_regs: vec![Reg(5), Reg(10)],
-                    },
-                    Op::EmitCandidate {
-                        relation: REL_EQUAL,
-                        evidence: Reg(11),
-                    },
-                    Op::Jump { target: 19 },
-                    Op::ReturnStatus { status: Reg(12) }, // 17 unreachable pad kept for clarity
-                    Op::ReturnStatus { status: Reg(12) }, // 18 fail
-                    Op::ReturnStatus { status: Reg(12) }, // 19 success
-                ],
-            }],
-        };
+        let module = equal_transitivity_join_plan(a, c);
         module.validate().unwrap();
         let mut vm = Vm::new(256);
         assert_eq!(vm.run(&module, &mut kernel).unwrap(), VmStatus::Unknown);

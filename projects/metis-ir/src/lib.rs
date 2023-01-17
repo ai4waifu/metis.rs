@@ -4,7 +4,14 @@
 //! validation. It does **not** hold an active heap, parse source, execute
 //! instructions, or define admission. Interpreter and JIT share this IR.
 
+mod plans;
+
+pub use plans::{
+    equal_transitivity_join_plan, REL_EQUAL, RULE_EQUAL_TRANSITIVITY,
+};
+
 use metis_types::NodeId;
+
 
 /// Dense register index within a plan frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

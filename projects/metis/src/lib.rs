@@ -2,10 +2,12 @@
 
 pub use athena_gc::{GcHeap, HeapBudget};
 pub use metis_compile::{LoweringResult, compile_declarations, lower_module, parse_source};
-pub use metis_ir::{Effect, Function as IrFunction, Module as IrModule, Op, Reg, RegKind};
+pub use metis_ir::{
+    Effect, Function as IrFunction, Module as IrModule, Op, Reg, RegKind, REL_EQUAL,
+    RULE_EQUAL_TRANSITIVITY, equal_transitivity_join_plan,
+};
 pub use metis_vm::{
-    Budget, EmittedCandidate, GraphKernel, KernelView, Slot, Vm, VmError, VmStatus, REL_EQUAL,
-    RULE_EQUAL_TRANSITIVITY,
+    Budget, EmittedCandidate, GraphKernel, KernelView, Slot, Vm, VmError, VmStatus,
 };
 pub use metis_graph::{
     EdgePayload, Graph, NodePayload, Step,
