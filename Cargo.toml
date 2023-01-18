@@ -19,17 +19,11 @@ metis-compile = { path = "projects/metis-compile" }
 metis-vm = { path = "projects/metis-vm" }
 metis-jit = { path = "projects/metis-jit" }
 metis = { path = "projects/metis" }
-athena-types = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
-athena-gc = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
-athena-graph = { git = "https://github.com/ai4waifu/athena.rs.git", branch = "dev" }
-oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
+athena-gc = { git = "https://github.com/ai4waifu/athena.rs.git", rev = "510220a094180da82d66ececcb907342923bb46a" }
+athena-graph = { git = "https://github.com/ai4waifu/athena.rs.git", rev = "510220a094180da82d66ececcb907342923bb46a" }
+oak-metis = { git = "https://github.com/ygg-lang/oaks.git", rev = "7c4c631967228daadde86a85da38c8617f149216", default-features = false }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-
-[patch."https://github.com/ai4waifu/athena.rs.git"]
-athena-types = { path = "../athena.rs/projects/athena-types" }
-athena-gc = { path = "../athena.rs/projects/athena-gc" }
-athena-graph = { path = "../athena.rs/projects/athena-graph" }
 
 [profile.release]
 opt-level = 3
