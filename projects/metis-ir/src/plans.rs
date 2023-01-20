@@ -36,66 +36,20 @@ pub fn equal_transitivity_join_plan(a: NodeId, c: NodeId) -> Module {
             ops: vec![
                 Op::LoadNode { dst: Reg(0), node: a },
                 Op::LoadNode { dst: Reg(1), node: c },
-                Op::ScanOut {
-                    iter: Reg(2),
-                    node: Reg(0),
-                    relation_filter: Some(REL_EQUAL),
-                },
-                Op::Next {
-                    dst: Reg(3),
-                    iter: Reg(2),
-                },
-                Op::BranchIfEmpty {
-                    cond: Reg(3),
-                    target: 18,
-                },
-                Op::EdgeTarget {
-                    dst: Reg(4),
-                    edge: Reg(3),
-                },
-                Op::GenFromEdge {
-                    dst: Reg(5),
-                    edge: Reg(3),
-                },
-                Op::ScanOut {
-                    iter: Reg(6),
-                    node: Reg(4),
-                    relation_filter: Some(REL_EQUAL),
-                },
-                Op::Next {
-                    dst: Reg(7),
-                    iter: Reg(6),
-                },
-                Op::BranchIfEmpty {
-                    cond: Reg(7),
-                    target: 3,
-                },
-                Op::EdgeTarget {
-                    dst: Reg(8),
-                    edge: Reg(7),
-                },
-                Op::NodesEqual {
-                    dst: Reg(9),
-                    left: Reg(8),
-                    right: Reg(1),
-                },
-                Op::BranchIfFalse {
-                    cond: Reg(9),
-                    target: 8,
-                },
-                Op::GenFromEdge {
-                    dst: Reg(10),
-                    edge: Reg(7),
-                },
-                Op::BuildEvidence {
-                    dst: Reg(11),
-                    rule: RULE_EQUAL_TRANSITIVITY,
-                    evidence_regs: vec![Reg(5), Reg(10)],
-                },
-                Op::EmitCandidate {
-                    relation: REL_EQUAL,
-                    evidence: Reg(11),
-                },
+                Op::ScanOut { iter: Reg(2), node: Reg(0), relation_filter: Some(REL_EQUAL) },
+                Op::Next { dst: Reg(3), iter: Reg(2) },
+                Op::BranchIfEmpty { cond: Reg(3), target: 18 },
+                Op::EdgeTarget { dst: Reg(4), edge: Reg(3) },
+                Op::GenFromEdge { dst: Reg(5), edge: Reg(3) },
+                Op::ScanOut { iter: Reg(6), node: Reg(4), relation_filter: Some(REL_EQUAL) },
+                Op::Next { dst: Reg(7), iter: Reg(6) },
+                Op::BranchIfEmpty { cond: Reg(7), target: 3 },
+                Op::EdgeTarget { dst: Reg(8), edge: Reg(7) },
+                Op::NodesEqual { dst: Reg(9), left: Reg(8), right: Reg(1) },
+                Op::BranchIfFalse { cond: Reg(9), target: 8 },
+                Op::GenFromEdge { dst: Reg(10), edge: Reg(7) },
+                Op::BuildEvidence { dst: Reg(11), rule: RULE_EQUAL_TRANSITIVITY, evidence_regs: vec![Reg(5), Reg(10)] },
+                Op::EmitCandidate { relation: REL_EQUAL, evidence: Reg(11) },
                 Op::Jump { target: 19 },
                 Op::ReturnStatus { status: Reg(12) },
                 Op::ReturnStatus { status: Reg(12) },
@@ -111,8 +65,6 @@ mod tests {
 
     #[test]
     fn join_plan_validates() {
-        equal_transitivity_join_plan(NodeId(0), NodeId(2))
-            .validate()
-            .unwrap();
+        equal_transitivity_join_plan(NodeId(0), NodeId(2)).validate().unwrap();
     }
 }

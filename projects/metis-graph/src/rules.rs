@@ -7,8 +7,10 @@ use std::collections::HashSet;
 
 use metis_types::EdgeKind;
 
-use super::derivation_rules::{FlipRule, is_builtin_rule};
-use super::transform::TransformationSchema;
+use super::{
+    derivation_rules::{FlipRule, is_builtin_rule},
+    transform::TransformationSchema,
+};
 
 /// Declared relation kinds that may appear as generators (axioms) in a world.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

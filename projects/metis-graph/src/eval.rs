@@ -5,8 +5,10 @@
 
 use metis_types::{EdgeKind, MetisError, NodeId};
 
-use super::admission::{CandidateRelation, QueryStatus, WorldId};
-use super::relation::form_relation;
+use super::{
+    admission::{CandidateRelation, QueryStatus, WorldId},
+    relation::form_relation,
+};
 
 /// How a numeric routine classified its Outer result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,11 +34,7 @@ pub struct EvalAttachment {
 }
 
 /// Form an Outer Eval candidate relation (position → shadow node) without admission.
-pub fn form_eval_candidate(
-    world: WorldId,
-    position: NodeId,
-    shadow: NodeId,
-) -> CandidateRelation {
+pub fn form_eval_candidate(world: WorldId, position: NodeId, shadow: NodeId) -> CandidateRelation {
     form_relation(world, (position, shadow), None)
 }
 
@@ -68,7 +66,8 @@ pub const fn eval_query_status(found: bool) -> QueryStatus {
     if found {
         // Presence of an Outer attachment is not Proven mathematics.
         QueryStatus::Unknown
-    } else {
+    }
+    else {
         QueryStatus::Unknown
     }
 }

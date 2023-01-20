@@ -9,17 +9,19 @@ use std::{
     num::NonZeroU32,
 };
 
-use metis_graph::admission::{AdmittedRelation, AdmittedWorld, ObservationBoundary, QueryStatus, WorldId};
-use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
-use metis_graph::connection::{
-    AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton,
-    transport_relation, transport_relation_asserting, validate_candidate,
+use metis_graph::{
+    Graph,
+    admission::{AdmittedRelation, AdmittedWorld, ObservationBoundary, QueryStatus, WorldId},
+    conflict::{Incompatibility, detect_judgment_conflict},
+    connection::{
+        AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton, transport_relation,
+        transport_relation_asserting, validate_candidate,
+    },
+    eval::{EvalAttachment, eval_query_status},
+    inner::InnerTable,
+    rules::RuleTable,
+    transform::TransformationSchema,
 };
-use metis_graph::eval::{EvalAttachment, eval_query_status};
-use metis_graph::inner::InnerTable;
-use metis_graph::rules::RuleTable;
-use metis_graph::transform::TransformationSchema;
-use metis_graph::Graph;
 use metis_types::{EdgeId, EdgeKind, IslandId, MetisError, NodeId};
 
 /// Named island entry.
@@ -165,12 +167,7 @@ impl IslandStore {
     }
 
     /// Assert a generating judgment only if the kind was declared in the staging rule table.
-    pub fn assert_generating(
-        &mut self,
-        from: NodeId,
-        kind: EdgeKind,
-        to: NodeId,
-    ) -> Result<EdgeId, MetisError> {
+    pub fn assert_generating(&mut self, from: NodeId, kind: EdgeKind, to: NodeId) -> Result<EdgeId, MetisError> {
         let st = self.staging_mut()?;
         if !st.rules.signature.allows(kind) {
             return Err(MetisError::ProofInvalid);
@@ -265,11 +262,7 @@ impl IslandStore {
     }
 
     /// Declare surface `A <-> B` skeletons between two accepted islands' current worlds.
-    pub fn declare_bidirectional(
-        &mut self,
-        left: IslandId,
-        right: IslandId,
-    ) -> Result<(usize, usize), MetisError> {
+    pub fn declare_bidirectional(&mut self, left: IslandId, right: IslandId) -> Result<(usize, usize), MetisError> {
         let lw = self.get(left)?.world_id(left);
         let rw = self.get(right)?.world_id(right);
         let (fwd, back) = bidirectional_skeleton(lw, rw, HashMap::new(), HashMap::new())?;
@@ -329,21 +322,9 @@ impl IslandStore {
     }
 
     /// Compose two registered M-Links and register the composite structure.
-    pub fn admit_composed_connection(
-        &mut self,
-        first_index: usize,
-        second_index: usize,
-    ) -> Result<usize, MetisError> {
-        let first = self
-            .admitted_connections
-            .get(first_index)
-            .cloned()
-            .ok_or(MetisError::InvalidHandle)?;
-        let second = self
-            .admitted_connections
-            .get(second_index)
-            .cloned()
-            .ok_or(MetisError::InvalidHandle)?;
+    pub fn admit_composed_connection(&mut self, first_index: usize, second_index: usize) -> Result<usize, MetisError> {
+        let first = self.admitted_connections.get(first_index).cloned().ok_or(MetisError::InvalidHandle)?;
+        let second = self.admitted_connections.get(second_index).cloned().ok_or(MetisError::InvalidHandle)?;
         let candidate = metis_graph::connection::compose_connections(&first, &second)?;
         self.register_world_morphism(candidate)
     }
@@ -367,10 +348,7 @@ impl IslandStore {
         relation: AdmittedRelation,
         kind: EdgeKind,
     ) -> Result<AdmittedRelation, MetisError> {
-        let conn = self
-            .admitted_connections
-            .get(connection_index)
-            .ok_or(MetisError::InvalidHandle)?;
+        let conn = self.admitted_connections.get(connection_index).ok_or(MetisError::InvalidHandle)?;
         self.require_known_world(conn.source())?;
         self.require_open_target(conn.target())?;
         transport_relation(conn, relation, kind)
@@ -395,19 +373,11 @@ impl IslandStore {
         relation: AdmittedRelation,
         kind: EdgeKind,
     ) -> Result<(AdmittedRelation, EdgeId), MetisError> {
-        let conn = self
-            .admitted_connections
-            .get(connection_index)
-            .cloned()
-            .ok_or(MetisError::InvalidHandle)?;
+        let conn = self.admitted_connections.get(connection_index).cloned().ok_or(MetisError::InvalidHandle)?;
         self.require_known_world(conn.source())?;
         self.require_open_target(conn.target())?;
         let target_id = conn.target().island;
-        let graph = &mut self
-            .islands
-            .get_mut(&target_id)
-            .ok_or(MetisError::IslandNotFound)?
-            .graph;
+        let graph = &mut self.islands.get_mut(&target_id).ok_or(MetisError::IslandNotFound)?.graph;
         transport_relation_asserting(graph, &conn, relation, kind)
     }
 
@@ -425,10 +395,7 @@ impl IslandStore {
     /// Query whether an Outer Eval attachment exists. Always [`QueryStatus::Unknown`] for math.
     pub fn query_eval_at(&self, world: WorldId, position: NodeId) -> Result<QueryStatus, MetisError> {
         self.require_known_world(world)?;
-        let found = self
-            .eval_attachments
-            .iter()
-            .any(|a| a.world == world && a.position == position);
+        let found = self.eval_attachments.iter().any(|a| a.world == world && a.position == position);
         Ok(eval_query_status(found))
     }
 
@@ -461,12 +428,12 @@ impl IslandStore {
     ) -> Result<(metis_graph::admission::QueryStatus, Option<metis_graph::admission::AdmittedRelation>), MetisError> {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
-        let (status, admitted) =
-            metis_graph::derivation::search_and_admit_equal_checked(&entry.graph, world, left, right)?;
+        let (status, admitted) = metis_graph::derivation::search_and_admit_equal_checked(&entry.graph, world, left, right)?;
         if let Some((rel, evidence)) = admitted {
             self.inner.insert_checked(rel, evidence)?;
             Ok((status, Some(rel)))
-        } else {
+        }
+        else {
             Ok((status, None))
         }
     }
@@ -498,13 +465,7 @@ impl IslandStore {
     /// Seed all signature-declared generating kinds into bootstrap `Inner(W)`.
     pub fn seed_inner_declared_generators(&mut self, island: IslandId) -> Result<usize, MetisError> {
         let world = self.get(island)?.world_id(island);
-        let sig = self
-            .islands
-            .get(&island)
-            .ok_or(MetisError::IslandNotFound)?
-            .rules
-            .signature
-            .clone();
+        let sig = self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.rules.signature.clone();
         let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
         metis_graph::closure::seed_declared_generators(graph, world, &sig, &mut self.inner)
     }
@@ -526,12 +487,7 @@ impl IslandStore {
     /// One rule-table `Φ_W` step using declared transforms with builtin replay support.
     pub fn phi_inner_rule_table_step(&mut self, island: IslandId) -> Result<usize, MetisError> {
         let world = self.get(island)?.world_id(island);
-        let rules = self
-            .islands
-            .get(&island)
-            .ok_or(MetisError::IslandNotFound)?
-            .rules
-            .clone();
+        let rules = self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.rules.clone();
         let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
         metis_graph::closure::phi_rule_table_step(graph, world, &rules, &mut self.inner)
     }
@@ -539,12 +495,7 @@ impl IslandStore {
     /// Seed declared generators then alternate Equal / rule-table phi until fixed or capped.
     pub fn saturate_inner_rule_table(&mut self, island: IslandId, max_steps: u32) -> Result<usize, MetisError> {
         let world = self.get(island)?.world_id(island);
-        let rules = self
-            .islands
-            .get(&island)
-            .ok_or(MetisError::IslandNotFound)?
-            .rules
-            .clone();
+        let rules = self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.rules.clone();
         let graph = &self.islands.get(&island).ok_or(MetisError::IslandNotFound)?.graph;
         metis_graph::closure::saturate_rule_table_inner(graph, world, &rules, &mut self.inner, max_steps)
     }
@@ -559,13 +510,8 @@ impl IslandStore {
         let entry = self.get(island)?;
         let world = entry.world_id(island);
         let registry = metis_graph::derivation_rules::registry_from_rule_table(&entry.rules);
-        let (rel, evidence) = metis_graph::transform::replay_two_premise_checked_with(
-            &entry.graph,
-            world,
-            schema,
-            inst,
-            &registry,
-        )?;
+        let (rel, evidence) =
+            metis_graph::transform::replay_two_premise_checked_with(&entry.graph, world, schema, inst, &registry)?;
         self.inner.insert_checked(rel, evidence)?;
         Ok(rel)
     }
@@ -690,10 +636,7 @@ mod tests {
         assert_eq!(store.connections()[j].source.island, b);
         assert!(refuse_galois_without_proof(&store.connections()[i]).is_err());
         // Bidirectional skeletons cannot be Core-admitted as morphisms.
-        assert_eq!(
-            store.admit_registered_connection(i).unwrap_err(),
-            MetisError::ConnectionInvalid
-        );
+        assert_eq!(store.admit_registered_connection(i).unwrap_err(), MetisError::ConnectionInvalid);
         assert!(store.admitted_connections().is_empty());
     }
 
@@ -782,10 +725,7 @@ mod tests {
         // Outer transport token itself must not be a trusted-path candidate.
         assert_eq!(moved.lane(), metis_graph::admission::JudgmentLane::BootstrapOuterTransport);
         assert!(!moved.is_trusted_path_candidate());
-        assert_eq!(
-            metis_graph::connection::transport_query_status(moved),
-            metis_graph::admission::QueryStatus::Unknown
-        );
+        assert_eq!(metis_graph::connection::transport_query_status(moved), metis_graph::admission::QueryStatus::Unknown);
     }
 
     #[test]
@@ -805,14 +745,8 @@ mod tests {
         let id = store.accept_staging("Path").unwrap();
         let n = store.saturate_inner_equal(id, 8).unwrap();
         assert!(n >= 2);
-        assert_eq!(
-            store.query_inner_equal(id, a, c).unwrap(),
-            metis_graph::admission::QueryStatus::Proven
-        );
-        assert_eq!(
-            store.query_inner_equal(id, c, a).unwrap(),
-            metis_graph::admission::QueryStatus::Proven
-        );
+        assert_eq!(store.query_inner_equal(id, a, c).unwrap(), metis_graph::admission::QueryStatus::Proven);
+        assert_eq!(store.query_inner_equal(id, c, a).unwrap(), metis_graph::admission::QueryStatus::Proven);
     }
 
     #[test]
@@ -851,10 +785,7 @@ mod tests {
         assert!(store.is_sealed(right).unwrap());
         assert!(store.get(right).unwrap().graph.is_snapshot_frozen());
         let rel = store.search_admit_equal(left, a, b).unwrap().1.expect("replay Equal");
-        assert_eq!(
-            store.transport_along(cidx, rel, EdgeKind::Equal).unwrap_err(),
-            MetisError::ConnectionInvalid
-        );
+        assert_eq!(store.transport_along(cidx, rel, EdgeKind::Equal).unwrap_err(), MetisError::ConnectionInvalid);
         // Sealing source still allows reading it as transport origin once target is open again —
         // here target stays sealed, so only assert source seal is allowed.
         store.seal_world(left).unwrap();
@@ -972,10 +903,7 @@ mod tests {
         let (st, adm) = store.search_admit_equal(id, a, b).unwrap();
         assert_eq!(st, metis_graph::admission::QueryStatus::Proven);
         assert!(adm.is_some());
-        assert_eq!(
-            store.query_inner_equal(id, a, b).unwrap(),
-            metis_graph::admission::QueryStatus::Proven
-        );
+        assert_eq!(store.query_inner_equal(id, a, b).unwrap(), metis_graph::admission::QueryStatus::Proven);
         assert!(store.inner().evidence_of(adm.unwrap().world(), EdgeKind::Equal, (a, b)).is_some());
     }
 
@@ -989,10 +917,7 @@ mod tests {
             let b = st.graph.intern_label(b"b").unwrap();
             (a, b)
         };
-        assert_eq!(
-            store.assert_generating(a, EdgeKind::Equal, b).unwrap_err(),
-            MetisError::ProofInvalid
-        );
+        assert_eq!(store.assert_generating(a, EdgeKind::Equal, b).unwrap_err(), MetisError::ProofInvalid);
         store.declare_generating_kind(EdgeKind::Equal).unwrap();
         store.assert_generating(a, EdgeKind::Equal, b).unwrap();
     }
@@ -1000,9 +925,11 @@ mod tests {
     /// Living Core first-slice acceptance checklist (smoke).
     #[test]
     fn core_acceptance_smoke_eight_points() {
-        use metis_graph::admission::QueryStatus;
-        use metis_graph::conflict::Incompatibility;
-        use metis_graph::transform::{TransformationInstance, TransformationSchema};
+        use metis_graph::{
+            admission::QueryStatus,
+            conflict::Incompatibility,
+            transform::{TransformationInstance, TransformationSchema},
+        };
 
         const NOT_EQ: u16 = 9;
         let mut store = IslandStore::new();
@@ -1026,11 +953,7 @@ mod tests {
         let world = store.get(id).unwrap().world_id(id);
         // 3–4. searcher proposes instance; kernel replays and admits into Inner
         let schema = TransformationSchema::equal_transitivity();
-        let inst = TransformationInstance {
-            premise_a: (a, b),
-            premise_b: (b, c),
-            conclusion: (a, c),
-        };
+        let inst = TransformationInstance { premise_a: (a, b), premise_b: (b, c), conclusion: (a, c) };
         let adm = store.admit_two_premise(id, &schema, &inst).unwrap();
         assert_eq!(adm.endpoints(), (a, c));
         assert!(store.inner().evidence_of(world, EdgeKind::Equal, (a, c)).is_some());
@@ -1081,10 +1004,7 @@ mod tests {
         let idx = store.record_eval_attachment(att).unwrap();
         assert_eq!(store.eval_attachments().len(), 1);
         assert_eq!(store.query_eval_at(world, NodeId(0)).unwrap(), QueryStatus::Unknown);
-        assert_eq!(
-            store.refuse_eval_attachment_as_equal(idx).unwrap_err(),
-            MetisError::ProofInvalid
-        );
+        assert_eq!(store.refuse_eval_attachment_as_equal(idx).unwrap_err(), MetisError::ProofInvalid);
         assert_eq!(store.get(id).unwrap().graph.node_count(), nodes_before);
     }
 

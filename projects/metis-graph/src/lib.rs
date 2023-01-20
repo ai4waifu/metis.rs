@@ -14,8 +14,7 @@ use std::{
 
 use athena_gc::{GcHeap, HeapBudget};
 use athena_graph::{
-    GraphBuilder, GraphDirection, GraphSemantics, ImmutableGraph, MultiplicityPolicy, PublishedImmutableGraph,
-    SelfLoopDegree,
+    GraphBuilder, GraphDirection, GraphSemantics, ImmutableGraph, MultiplicityPolicy, PublishedImmutableGraph, SelfLoopDegree,
 };
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
@@ -178,9 +177,7 @@ impl Graph {
     }
 
     fn add_base_edge(&mut self, from: NodeId, to: NodeId, payload: EdgePayload) -> Result<EdgeId, MetisError> {
-        self.builder
-            .add_edge(from, to, payload)
-            .ok_or(MetisError::GraphRejected)
+        self.builder.add_edge(from, to, payload).ok_or(MetisError::GraphRejected)
     }
 
     /// Intern a named atom. Same bytes → same [`NodeId`].
@@ -228,11 +225,7 @@ impl Graph {
         self.add_base_edge(from, to, EdgePayload::judgment(kind))
     }
 
-    fn outgoing_filtered(
-        &self,
-        id: NodeId,
-        structural: Option<bool>,
-    ) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
+    fn outgoing_filtered(&self, id: NodeId, structural: Option<bool>) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
         for (edge, neighbor, payload) in self.builder.graph().out_edges(id) {
@@ -246,11 +239,7 @@ impl Graph {
         Ok(out)
     }
 
-    fn incoming_filtered(
-        &self,
-        id: NodeId,
-        structural: Option<bool>,
-    ) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
+    fn incoming_filtered(&self, id: NodeId, structural: Option<bool>) -> Result<Vec<(EdgeId, EdgeKind, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
         for (edge, neighbor, payload) in self.builder.graph().in_edges(id) {
@@ -280,11 +269,7 @@ impl Graph {
     }
 
     /// Outgoing judgment edges of a specific kind (athena adjacency + payload filter).
-    pub fn judgment_outgoing_of_kind(
-        &self,
-        id: NodeId,
-        kind: EdgeKind,
-    ) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
+    pub fn judgment_outgoing_of_kind(&self, id: NodeId, kind: EdgeKind) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
         for (edge, neighbor, payload) in self.builder.graph().out_edges(id) {
@@ -296,11 +281,7 @@ impl Graph {
     }
 
     /// Incoming judgment edges of a specific kind (athena adjacency + payload filter).
-    pub fn judgment_incoming_of_kind(
-        &self,
-        id: NodeId,
-        kind: EdgeKind,
-    ) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
+    pub fn judgment_incoming_of_kind(&self, id: NodeId, kind: EdgeKind) -> Result<Vec<(EdgeId, NodeId)>, MetisError> {
         self.ensure_known(id)?;
         let mut out = Vec::new();
         for (edge, neighbor, payload) in self.builder.graph().in_edges(id) {
@@ -326,11 +307,7 @@ impl Graph {
     }
 
     pub fn is_judgment(&self, id: EdgeId) -> Result<bool, MetisError> {
-        let payload = self
-            .builder
-            .graph()
-            .edge_value(id)
-            .ok_or(MetisError::EdgeNotFound)?;
+        let payload = self.builder.graph().edge_value(id).ok_or(MetisError::EdgeNotFound)?;
         Ok(!payload.structural)
     }
 
@@ -339,7 +316,8 @@ impl Graph {
         let base = self.builder.graph();
         let mut out = Vec::new();
         for (from, to, edge) in base.edges() {
-            let Some(payload) = base.edge_value(edge) else {
+            let Some(payload) = base.edge_value(edge)
+            else {
                 continue;
             };
             if payload.structural {
@@ -352,11 +330,7 @@ impl Graph {
 
     /// Payload stored on the ordinary athena edge.
     pub fn edge_payload(&self, id: EdgeId) -> Result<EdgePayload, MetisError> {
-        self.builder
-            .graph()
-            .edge_value(id)
-            .copied()
-            .ok_or(MetisError::EdgeNotFound)
+        self.builder.graph().edge_value(id).copied().ok_or(MetisError::EdgeNotFound)
     }
 
     pub fn node_count(&self) -> usize {

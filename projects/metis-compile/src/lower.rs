@@ -170,7 +170,8 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
             let pid = resolve_island_ref(&out.store, &out.usings, &out.local_aliases, base)?;
             let parent = out.store.get(pid)?.world_id(pid);
             out.store.add_staging_parent(parent)?;
-        } else {
+        }
+        else {
             // `use` must name an already-accepted island (declaration order matters).
             for name in &uses {
                 let pid = resolve_island_ref(&out.store, &out.usings, &out.local_aliases, name)?;
@@ -360,17 +361,11 @@ island AbelianGroup : GroupTheory { node Element }
         .expect("parse");
         let low = lower_module(&module).expect("lower");
         assert_eq!(low.usings, vec!["std::algebra::GroupTheory".to_string()]);
-        assert_eq!(
-            low.using_aliases.get("GroupTheory").map(String::as_str),
-            Some("std::algebra::GroupTheory")
-        );
+        assert_eq!(low.using_aliases.get("GroupTheory").map(String::as_str), Some("std::algebra::GroupTheory"));
         let ab = low.store.lookup("AbelianGroup").unwrap();
         let gt = low.store.lookup("GroupTheory").unwrap();
         assert_eq!(low.store.get(ab).unwrap().parents.len(), 1);
-        assert_eq!(
-            low.store.get(ab).unwrap().parents[0],
-            low.store.get(gt).unwrap().world_id(gt)
-        );
+        assert_eq!(low.store.get(ab).unwrap().parents[0], low.store.get(gt).unwrap().world_id(gt));
         // `using` must not invent Extra islands or judgment edges.
         assert_eq!(low.store.lookup("std::algebra::GroupTheory"), None);
     }
@@ -388,10 +383,7 @@ island AbelianGroup : std::algebra::GroupTheory { node Element }
         let low = lower_module(&module).expect("lower");
         let ab = low.store.lookup("AbelianGroup").unwrap();
         let gt = low.store.lookup("GroupTheory").unwrap();
-        assert_eq!(
-            low.store.get(ab).unwrap().parents[0],
-            low.store.get(gt).unwrap().world_id(gt)
-        );
+        assert_eq!(low.store.get(ab).unwrap().parents[0], low.store.get(gt).unwrap().world_id(gt));
 
         let no_using = parse_module(
             r#"
@@ -432,22 +424,14 @@ island AbelianGroup : GroupTheory { node Element }
         assert!(low.store.lookup("std::algebra::AbelianGroup").is_some());
         // Bare short name is not a store key when namespace is set.
         assert_eq!(low.store.lookup("GroupTheory"), None);
-        let via_using =
-            resolve_island_ref(&low.store, &low.usings, &low.local_aliases, "GroupTheory").unwrap();
+        let via_using = resolve_island_ref(&low.store, &low.usings, &low.local_aliases, "GroupTheory").unwrap();
         let gt = low.store.lookup("std::algebra::GroupTheory").unwrap();
         assert_eq!(via_using, gt);
-        let via_local =
-            resolve_island_ref(&low.store, &low.usings, &low.local_aliases, "AbelianGroup").unwrap();
+        let via_local = resolve_island_ref(&low.store, &low.usings, &low.local_aliases, "AbelianGroup").unwrap();
         let ab_id = low.store.lookup("std::algebra::AbelianGroup").unwrap();
         assert_eq!(via_local, ab_id);
-        assert_eq!(
-            low.local_aliases.get("GroupTheory").map(String::as_str),
-            Some("std::algebra::GroupTheory")
-        );
-        assert_eq!(
-            low.store.get(ab_id).unwrap().parents[0],
-            low.store.get(gt).unwrap().world_id(gt)
-        );
+        assert_eq!(low.local_aliases.get("GroupTheory").map(String::as_str), Some("std::algebra::GroupTheory"));
+        assert_eq!(low.store.get(ab_id).unwrap().parents[0], low.store.get(gt).unwrap().world_id(gt));
     }
 
     #[test]
@@ -463,9 +447,6 @@ island AbelianGroup : GroupTheory { node Element }
         let low = lower_module(&module).expect("lower");
         let gt = low.store.lookup("std::algebra::GroupTheory").unwrap();
         let ab = low.store.lookup("std::algebra::AbelianGroup").unwrap();
-        assert_eq!(
-            low.store.get(ab).unwrap().parents[0],
-            low.store.get(gt).unwrap().world_id(gt)
-        );
+        assert_eq!(low.store.get(ab).unwrap().parents[0], low.store.get(gt).unwrap().world_id(gt));
     }
 }

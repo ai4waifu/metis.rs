@@ -6,8 +6,10 @@
 
 use metis_types::{EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, ConflictReport, JudgmentLane, QueryStatus, WorldId};
-use super::Graph;
+use super::{
+    Graph,
+    admission::{AdmittedRelation, ConflictReport, JudgmentLane, QueryStatus, WorldId},
+};
 
 /// Island-declared mutual exclusion between two judgment kinds on one endpoint pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -34,20 +36,8 @@ pub fn detect_judgment_conflict(
     let right = find_judgment(graph, policy.right_kind, endpoints)?;
     match (left, right) {
         (Some(_), Some(_)) => {
-            let left = AdmittedRelation::mint(
-                world,
-                policy.left_kind,
-                endpoints,
-                1,
-                JudgmentLane::BootstrapConflictReport,
-            );
-            let right = AdmittedRelation::mint(
-                world,
-                policy.right_kind,
-                endpoints,
-                2,
-                JudgmentLane::BootstrapConflictReport,
-            );
+            let left = AdmittedRelation::mint(world, policy.left_kind, endpoints, 1, JudgmentLane::BootstrapConflictReport);
+            let right = AdmittedRelation::mint(world, policy.right_kind, endpoints, 2, JudgmentLane::BootstrapConflictReport);
             Ok(Some(ConflictReport { world, left, right }))
         }
         _ => Ok(None),

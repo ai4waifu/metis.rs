@@ -88,13 +88,7 @@ mod tests {
         let low = compile_declarations(GRAPH).expect("compile");
         let gt = low.store.lookup("std::graph_theory::GraphTheory").expect("GraphTheory");
         let bfs = low.store.lookup("std::algorithms::BFS").expect("BFS");
-        assert_eq!(
-            low.store.get(bfs).unwrap().parents[0],
-            low.store.get(gt).unwrap().world_id(gt)
-        );
-        assert_eq!(
-            low.using_aliases.get("GraphTheory").map(String::as_str),
-            Some("std::graph_theory::GraphTheory")
-        );
+        assert_eq!(low.store.get(bfs).unwrap().parents[0], low.store.get(gt).unwrap().world_id(gt));
+        assert_eq!(low.using_aliases.get("GraphTheory").map(String::as_str), Some("std::graph_theory::GraphTheory"));
     }
 }

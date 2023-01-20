@@ -6,10 +6,12 @@
 
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, WorldId};
-use super::derivation_rules::{EQUAL_TRANSITIVITY, DerivationRegistry};
-use super::evidence::{Evidence, JudgmentAtom, replay_evidence_with};
-use super::Graph;
+use super::{
+    Graph,
+    admission::{AdmittedRelation, WorldId},
+    derivation_rules::{DerivationRegistry, EQUAL_TRANSITIVITY},
+    evidence::{Evidence, JudgmentAtom, replay_evidence_with},
+};
 
 /// Pattern for one premise judgment: `kind(from, to)` with optional fixed endpoints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -78,13 +80,8 @@ impl TransformationSchema {
         if !(y1 == y2 && cx == x && cz == z) {
             return false;
         }
-        self.premise_a.matches_atom(JudgmentAtom {
-            kind: self.premise_a.kind,
-            endpoints: (x, y1),
-        }) && self.premise_b.matches_atom(JudgmentAtom {
-            kind: self.premise_b.kind,
-            endpoints: (y2, z),
-        })
+        self.premise_a.matches_atom(JudgmentAtom { kind: self.premise_a.kind, endpoints: (x, y1) })
+            && self.premise_b.matches_atom(JudgmentAtom { kind: self.premise_b.kind, endpoints: (y2, z) })
     }
 }
 
@@ -108,10 +105,7 @@ pub fn evidence_from_two_premise(
     Ok(Evidence::App {
         rule: schema.name.clone(),
         premises: vec![Evidence::Gen { edge: edge_a }, Evidence::Gen { edge: edge_b }],
-        conclusion: JudgmentAtom {
-            kind: schema.conclusion_kind,
-            endpoints: inst.conclusion,
-        },
+        conclusion: JudgmentAtom { kind: schema.conclusion_kind, endpoints: inst.conclusion },
     })
 }
 
@@ -190,11 +184,7 @@ mod tests {
         g.assert(a, EdgeKind::Equal, b).unwrap();
         g.assert(b, EdgeKind::Equal, c).unwrap();
         let schema = TransformationSchema::equal_transitivity();
-        let inst = TransformationInstance {
-            premise_a: (a, b),
-            premise_b: (b, c),
-            conclusion: (a, c),
-        };
+        let inst = TransformationInstance { premise_a: (a, b), premise_b: (b, c), conclusion: (a, c) };
         let evidence = evidence_from_two_premise(&g, &schema, &inst).unwrap();
         assert_eq!(height(&evidence), 1);
         let adm = replay_two_premise(&g, world(), &schema, &inst).unwrap();
@@ -212,15 +202,8 @@ mod tests {
         g.assert(a, EdgeKind::Equal, b).unwrap();
         // missing b=c
         let schema = TransformationSchema::equal_transitivity();
-        let inst = TransformationInstance {
-            premise_a: (a, b),
-            premise_b: (b, c),
-            conclusion: (a, c),
-        };
-        assert_eq!(
-            replay_two_premise(&g, world(), &schema, &inst).unwrap_err(),
-            MetisError::ProofInvalid
-        );
+        let inst = TransformationInstance { premise_a: (a, b), premise_b: (b, c), conclusion: (a, c) };
+        assert_eq!(replay_two_premise(&g, world(), &schema, &inst).unwrap_err(), MetisError::ProofInvalid);
     }
 
     #[test]
@@ -237,9 +220,6 @@ mod tests {
             premise_b: (b, c),
             conclusion: (a, b), // wrong conclusion
         };
-        assert_eq!(
-            replay_two_premise(&g, world(), &schema, &inst).unwrap_err(),
-            MetisError::ProofInvalid
-        );
+        assert_eq!(replay_two_premise(&g, world(), &schema, &inst).unwrap_err(), MetisError::ProofInvalid);
     }
 }

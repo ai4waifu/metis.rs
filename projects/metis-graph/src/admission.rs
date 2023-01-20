@@ -111,11 +111,7 @@ impl AdmittedRelation {
 /// Only [`JudgmentLane::SingleWorldReplay`] may surface as [`QueryStatus::Proven`].
 /// Bootstrap transport / conflict tokens stay [`QueryStatus::Unknown`].
 pub const fn query_status_of_admitted(rel: AdmittedRelation) -> QueryStatus {
-    if rel.is_trusted_path_candidate() {
-        QueryStatus::Proven
-    } else {
-        QueryStatus::Unknown
-    }
+    if rel.is_trusted_path_candidate() { QueryStatus::Proven } else { QueryStatus::Unknown }
 }
 
 /// Opaque admitted world (accepted island version). Only Core mint paths may create it.
@@ -132,10 +128,7 @@ impl AdmittedWorld {
 
     /// Mint after a world is accepted / sealed into the inner table.
     pub fn admit(world: WorldId) -> Self {
-        let tag = world
-            .version
-            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-            .wrapping_add(u64::from(world.island.get()));
+        let tag = world.version.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(u64::from(world.island.get()));
         Self::mint(world, tag)
     }
 
@@ -158,12 +151,7 @@ pub struct ConflictReport {
 
 /// Map absence of a directed proof to [`QueryStatus::Unknown`] (never automatic negation).
 pub const fn unknown_if_missing(found: bool) -> QueryStatus {
-    if found {
-        QueryStatus::Proven
-    }
-    else {
-        QueryStatus::Unknown
-    }
+    if found { QueryStatus::Proven } else { QueryStatus::Unknown }
 }
 
 #[cfg(test)]
@@ -181,13 +169,7 @@ mod tests {
     #[test]
     fn admitted_is_opaque_but_readable() {
         let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
-        let a = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            7,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let a = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 7, JudgmentLane::SingleWorldReplay);
         assert_eq!(a.world(), w);
         assert_eq!(a.kind(), EdgeKind::Equal);
         assert_eq!(a.evidence_tag(), 7);
@@ -197,20 +179,8 @@ mod tests {
     #[test]
     fn equal_and_in_tokens_are_distinct() {
         let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
-        let eq = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            1,
-            JudgmentLane::SingleWorldReplay,
-        );
-        let mem = AdmittedRelation::mint(
-            w,
-            EdgeKind::In,
-            (NodeId(0), NodeId(1)),
-            1,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let eq = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1, JudgmentLane::SingleWorldReplay);
+        let mem = AdmittedRelation::mint(w, EdgeKind::In, (NodeId(0), NodeId(1)), 1, JudgmentLane::SingleWorldReplay);
         assert_ne!(eq, mem);
         assert_eq!(eq.endpoints(), mem.endpoints());
     }
@@ -218,13 +188,7 @@ mod tests {
     #[test]
     fn transport_lane_is_not_trusted_path_candidate() {
         let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
-        let t = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            1,
-            JudgmentLane::BootstrapOuterTransport,
-        );
+        let t = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1, JudgmentLane::BootstrapOuterTransport);
         assert!(!t.is_trusted_path_candidate());
         assert_eq!(query_status_of_admitted(t), QueryStatus::Unknown);
     }
@@ -232,13 +196,7 @@ mod tests {
     #[test]
     fn replay_lane_maps_to_proven() {
         let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 0 };
-        let r = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            1,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let r = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1, JudgmentLane::SingleWorldReplay);
         assert_eq!(query_status_of_admitted(r), QueryStatus::Proven);
     }
 

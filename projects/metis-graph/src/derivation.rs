@@ -6,9 +6,11 @@
 
 use metis_types::{MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, QueryStatus, WorldId, query_status_of_admitted};
-use super::evidence::{Evidence, evidence_from_equal_steps, replay_evidence};
-use super::{Graph, Step};
+use super::{
+    Graph, Step,
+    admission::{AdmittedRelation, QueryStatus, WorldId, query_status_of_admitted},
+    evidence::{Evidence, evidence_from_equal_steps, replay_evidence},
+};
 
 /// Degenerate derivation diagram: ordered EQ steps under a fixed world version.
 #[derive(Clone, Debug, PartialEq, Eq)]

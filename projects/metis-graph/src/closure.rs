@@ -6,15 +6,15 @@
 
 use metis_types::{EdgeKind, MetisError};
 
-use super::admission::WorldId;
-use super::derivation_rules::{
-    EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, registry_from_rule_table,
+use super::{
+    Graph,
+    admission::WorldId,
+    derivation_rules::{EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, registry_from_rule_table},
+    evidence::{Evidence, JudgmentAtom, replay_evidence, replay_evidence_with},
+    inner::InnerTable,
+    rules::{RelationSignature, RuleTable},
+    transform::{TransformationInstance, TransformationSchema},
 };
-use super::evidence::{Evidence, JudgmentAtom, replay_evidence, replay_evidence_with};
-use super::inner::InnerTable;
-use super::rules::{RelationSignature, RuleTable};
-use super::transform::{TransformationInstance, TransformationSchema};
-use super::Graph;
 
 /// Seed `Φ_W⁰`: every judgment edge whose kind is allowed by `signature` becomes `gen` evidence.
 ///
@@ -43,11 +43,7 @@ pub fn seed_declared_generators(
 }
 
 /// Seed `Φ_W⁰` for Equal only (compat wrapper around [`seed_declared_generators`]).
-pub fn seed_equal_generators(
-    graph: &Graph,
-    world: WorldId,
-    inner: &mut InnerTable,
-) -> Result<usize, MetisError> {
+pub fn seed_equal_generators(graph: &Graph, world: WorldId, inner: &mut InnerTable) -> Result<usize, MetisError> {
     let mut sig = RelationSignature::new();
     sig.declare_kind(EdgeKind::Equal);
     seed_declared_generators(graph, world, &sig, inner)
@@ -56,11 +52,7 @@ pub fn seed_equal_generators(
 /// One Equal `Φ_W` step: add missing symmetry and two-premise transitivity conclusions.
 ///
 /// Uses only judgments already in Inner (plus their evidence). Does not search the graph.
-pub fn phi_equal_step(
-    graph: &Graph,
-    world: WorldId,
-    inner: &mut InnerTable,
-) -> Result<usize, MetisError> {
+pub fn phi_equal_step(graph: &Graph, world: WorldId, inner: &mut InnerTable) -> Result<usize, MetisError> {
     let members = inner.equal_memberships(world);
     let mut added = 0;
 
@@ -73,11 +65,7 @@ pub fn phi_equal_step(
         if inner.contains_atom(world, flipped) {
             continue;
         }
-        let sym = Evidence::App {
-            rule: EQUAL_SYMMETRY.into(),
-            premises: vec![evidence.clone()],
-            conclusion: flipped,
-        };
+        let sym = Evidence::App { rule: EQUAL_SYMMETRY.into(), premises: vec![evidence.clone()], conclusion: flipped };
         let admitted = replay_evidence(graph, world, &sym, &[])?;
         inner.insert_checked(admitted, sym)?;
         added += 1;
@@ -97,11 +85,8 @@ pub fn phi_equal_step(
             if inner.contains_atom(world, concl) {
                 continue;
             }
-            let app = Evidence::App {
-                rule: EQUAL_TRANSITIVITY.into(),
-                premises: vec![ea.clone(), eb.clone()],
-                conclusion: concl,
-            };
+            let app =
+                Evidence::App { rule: EQUAL_TRANSITIVITY.into(), premises: vec![ea.clone(), eb.clone()], conclusion: concl };
             let admitted = replay_evidence(graph, world, &app, &[])?;
             inner.insert_checked(admitted, app)?;
             added += 1;
@@ -168,21 +153,15 @@ fn admit_schema_from_inner(
     let mut added = 0;
     for (a, ea) in &lefts {
         for (b, eb) in &rights {
-            let Some(inst) = chain_instance(schema, a, b) else {
+            let Some(inst) = chain_instance(schema, a, b)
+            else {
                 continue;
             };
-            let concl = JudgmentAtom {
-                kind: schema.conclusion_kind,
-                endpoints: inst.conclusion,
-            };
+            let concl = JudgmentAtom { kind: schema.conclusion_kind, endpoints: inst.conclusion };
             if inner.contains_atom(world, concl) {
                 continue;
             }
-            let app = Evidence::App {
-                rule: schema.name.clone(),
-                premises: vec![ea.clone(), eb.clone()],
-                conclusion: concl,
-            };
+            let app = Evidence::App { rule: schema.name.clone(), premises: vec![ea.clone(), eb.clone()], conclusion: concl };
             match replay_evidence_with(graph, world, &app, &[], registry) {
                 Ok(admitted) => {
                     inner.insert_checked(admitted, app)?;
@@ -196,26 +175,14 @@ fn admit_schema_from_inner(
     Ok(added)
 }
 
-fn chain_instance(
-    schema: &TransformationSchema,
-    a: &JudgmentAtom,
-    b: &JudgmentAtom,
-) -> Option<TransformationInstance> {
+fn chain_instance(schema: &TransformationSchema, a: &JudgmentAtom, b: &JudgmentAtom) -> Option<TransformationInstance> {
     let (x, y1) = a.endpoints;
     let (y2, z) = b.endpoints;
     if y1 != y2 {
         return None;
     }
-    let inst = TransformationInstance {
-        premise_a: (x, y1),
-        premise_b: (y2, z),
-        conclusion: (x, z),
-    };
-    if schema.matches_instance(&inst) {
-        Some(inst)
-    } else {
-        None
-    }
+    let inst = TransformationInstance { premise_a: (x, y1), premise_b: (y2, z), conclusion: (x, z) };
+    if schema.matches_instance(&inst) { Some(inst) } else { None }
 }
 
 fn admit_flip_from_inner(
@@ -235,18 +202,11 @@ fn admit_flip_from_inner(
         if x == y && flip.conclusion == flip.premise.kind {
             continue;
         }
-        let concl = JudgmentAtom {
-            kind: flip.conclusion,
-            endpoints: (y, x),
-        };
+        let concl = JudgmentAtom { kind: flip.conclusion, endpoints: (y, x) };
         if inner.contains_atom(world, concl) {
             continue;
         }
-        let app = Evidence::App {
-            rule: flip.name.clone(),
-            premises: vec![evidence.clone()],
-            conclusion: concl,
-        };
+        let app = Evidence::App { rule: flip.name.clone(), premises: vec![evidence.clone()], conclusion: concl };
         match replay_evidence_with(graph, world, &app, &[], registry) {
             Ok(admitted) => {
                 inner.insert_checked(admitted, app)?;
@@ -282,8 +242,7 @@ pub fn saturate_rule_table_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admission::QueryStatus;
-    use crate::rules::RelationSignature;
+    use crate::{admission::QueryStatus, rules::RelationSignature};
     use core::num::NonZeroU32;
     use metis_types::IslandId;
 
@@ -357,8 +316,7 @@ mod tests {
 
     #[test]
     fn rule_table_phi_admits_transitivity_from_inner() {
-        use crate::rules::RuleTable;
-        use crate::transform::TransformationSchema;
+        use crate::{rules::RuleTable, transform::TransformationSchema};
 
         let mut g = Graph::new();
         let a = g.intern_label(b"a").unwrap();
@@ -382,8 +340,10 @@ mod tests {
 
     #[test]
     fn custom_chain_transform_saturates_in_membership() {
-        use crate::rules::RuleTable;
-        use crate::transform::{PremisePattern, TransformationSchema};
+        use crate::{
+            rules::RuleTable,
+            transform::{PremisePattern, TransformationSchema},
+        };
 
         let mut g = Graph::new();
         let a = g.intern_label(b"a").unwrap();
@@ -407,8 +367,10 @@ mod tests {
 
     #[test]
     fn fixed_endpoint_transform_only_fires_from_root() {
-        use crate::rules::RuleTable;
-        use crate::transform::{PremisePattern, TransformationSchema};
+        use crate::{
+            rules::RuleTable,
+            transform::{PremisePattern, TransformationSchema},
+        };
 
         let mut g = Graph::new();
         let root = g.intern_label(b"root").unwrap();

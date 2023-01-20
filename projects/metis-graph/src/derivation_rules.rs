@@ -7,8 +7,10 @@ use std::collections::HashMap;
 
 use metis_types::{EdgeKind, MetisError};
 
-use super::evidence::JudgmentAtom;
-use super::transform::{PremisePattern, TransformationSchema};
+use super::{
+    evidence::JudgmentAtom,
+    transform::{PremisePattern, TransformationSchema},
+};
 
 /// Reflexivity: `Equal(x, x)` with zero premises.
 pub const EQUAL_REFL: &str = "equal_refl";
@@ -71,11 +73,7 @@ pub struct FlipRule {
 impl FlipRule {
     /// Symmetry-style flip over one kind with unconstrained endpoints.
     pub fn unconstrained(name: impl Into<String>, kind: EdgeKind) -> Self {
-        Self {
-            name: name.into(),
-            premise: PremisePattern { kind, from: None, to: None },
-            conclusion: kind,
-        }
+        Self { name: name.into(), premise: PremisePattern { kind, from: None, to: None }, conclusion: kind }
     }
 }
 
@@ -126,12 +124,7 @@ impl DerivationRegistry {
     }
 
     /// Apply builtin, chain, or flip rule to already-replayed premises.
-    pub fn apply(
-        &self,
-        name: &str,
-        premises: &[JudgmentAtom],
-        conclusion: JudgmentAtom,
-    ) -> Result<JudgmentAtom, MetisError> {
+    pub fn apply(&self, name: &str, premises: &[JudgmentAtom], conclusion: JudgmentAtom) -> Result<JudgmentAtom, MetisError> {
         if is_builtin_rule(name) {
             return apply_builtin_rule(name, premises, conclusion);
         }
@@ -173,11 +166,7 @@ impl DerivationRegistry {
 }
 
 /// Check that `premises` (already replayed) justify `conclusion` under builtin rule `name`.
-pub fn apply_builtin_rule(
-    name: &str,
-    premises: &[JudgmentAtom],
-    conclusion: JudgmentAtom,
-) -> Result<JudgmentAtom, MetisError> {
+pub fn apply_builtin_rule(name: &str, premises: &[JudgmentAtom], conclusion: JudgmentAtom) -> Result<JudgmentAtom, MetisError> {
     match name {
         EQUAL_REFL => {
             if !premises.is_empty() {
@@ -270,16 +259,14 @@ mod tests {
     #[test]
     fn custom_chain_rule_replays() {
         let mut reg = DerivationRegistry::builtins();
-        reg.register_chain(ChainRule::unconstrained("in_compose", EdgeKind::In, EdgeKind::In))
-            .unwrap();
+        reg.register_chain(ChainRule::unconstrained("in_compose", EdgeKind::In, EdgeKind::In)).unwrap();
         let p0 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(1)) };
         let p1 = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(1), NodeId(2)) };
         let conc = JudgmentAtom { kind: EdgeKind::In, endpoints: (NodeId(0), NodeId(2)) };
         assert_eq!(reg.apply("in_compose", &[p0, p1], conc).unwrap(), conc);
         assert!(reg.has_rule("in_compose"));
         assert_eq!(
-            reg.register_chain(ChainRule::unconstrained("in_compose", EdgeKind::In, EdgeKind::In))
-                .unwrap_err(),
+            reg.register_chain(ChainRule::unconstrained("in_compose", EdgeKind::In, EdgeKind::In)).unwrap_err(),
             MetisError::InvalidHandle
         );
     }

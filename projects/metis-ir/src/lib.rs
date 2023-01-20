@@ -6,12 +6,9 @@
 
 mod plans;
 
-pub use plans::{
-    equal_transitivity_join_plan, REL_EQUAL, RULE_EQUAL_TRANSITIVITY,
-};
+pub use plans::{REL_EQUAL, RULE_EQUAL_TRANSITIVITY, equal_transitivity_join_plan};
 
 use metis_types::NodeId;
-
 
 /// Dense register index within a plan frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -58,22 +55,49 @@ pub enum Effect {
 /// `Admit` is intentionally absent: only Kernel admission casts results.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Op {
-    LoadNode { dst: Reg, node: NodeId },
-    LoadRelation { dst: Reg, relation: RelationId },
+    LoadNode {
+        dst: Reg,
+        node: NodeId,
+    },
+    LoadRelation {
+        dst: Reg,
+        relation: RelationId,
+    },
     /// Load a host-table evidence handle into a register (index from prior `alloc_gen` / search).
-    LoadEvidence { dst: Reg, evidence: u64 },
+    LoadEvidence {
+        dst: Reg,
+        evidence: u64,
+    },
     /// `gen(edge)` from a Value register holding an [`EdgeId`] raw (`Next` yield).
-    GenFromEdge { dst: Reg, edge: Reg },
+    GenFromEdge {
+        dst: Reg,
+        edge: Reg,
+    },
     /// Target endpoint of an edge Value → Node register.
-    EdgeTarget { dst: Reg, edge: Reg },
+    EdgeTarget {
+        dst: Reg,
+        edge: Reg,
+    },
     /// Unconditional jump to instruction index (within the same function).
-    Jump { target: u32 },
+    Jump {
+        target: u32,
+    },
     /// If `cond` holds an empty slot (iterator exhausted after `Next`), jump; else fall through.
-    BranchIfEmpty { cond: Reg, target: u32 },
+    BranchIfEmpty {
+        cond: Reg,
+        target: u32,
+    },
     /// If boolean `cond` is false, jump; else fall through.
-    BranchIfFalse { cond: Reg, target: u32 },
+    BranchIfFalse {
+        cond: Reg,
+        target: u32,
+    },
     /// Compare two Node registers → Bool.
-    NodesEqual { dst: Reg, left: Reg, right: Reg },
+    NodesEqual {
+        dst: Reg,
+        left: Reg,
+        right: Reg,
+    },
     ScanOut {
         iter: Reg,
         node: Reg,
@@ -84,7 +108,10 @@ pub enum Op {
         node: Reg,
         relation_filter: Option<RelationId>,
     },
-    Next { dst: Reg, iter: Reg },
+    Next {
+        dst: Reg,
+        iter: Reg,
+    },
     Match {
         dst: Reg,
         /// Pattern table index resolved by the host / compile unit.
@@ -119,7 +146,9 @@ pub enum Op {
         /// Host-resolved world fingerprint expected at entry.
         world_fingerprint: u64,
     },
-    ReturnStatus { status: Reg },
+    ReturnStatus {
+        status: Reg,
+    },
 }
 
 /// One validated function body: register file layout + instruction stream.
@@ -174,31 +203,22 @@ impl Module {
     }
 
     pub fn entry_function(&self) -> Result<&Function, IrError> {
-        self.functions
-            .get(self.entry as usize)
-            .ok_or(IrError::BadEntry)
+        self.functions.get(self.entry as usize).ok_or(IrError::BadEntry)
     }
 }
 
 fn validate_function(f: &Function) -> Result<(), IrError> {
     let n = f.regs.len();
     let has = |r: Reg| (r.0 as usize) < n;
-    let kind = |r: Reg| -> Result<RegKind, IrError> {
-        f.regs.get(r.0 as usize).copied().ok_or(IrError::BadReg)
-    };
+    let kind = |r: Reg| -> Result<RegKind, IrError> { f.regs.get(r.0 as usize).copied().ok_or(IrError::BadReg) };
     let expect = |r: Reg, want: RegKind| -> Result<(), IrError> {
         if kind(r)? != want {
             return Err(IrError::RegKindMismatch);
         }
         Ok(())
     };
-    let need_effect = |e: Effect| -> Result<(), IrError> {
-        if f.effects.contains(&e) {
-            Ok(())
-        } else {
-            Err(IrError::UndeclaredEffect)
-        }
-    };
+    let need_effect =
+        |e: Effect| -> Result<(), IrError> { if f.effects.contains(&e) { Ok(()) } else { Err(IrError::UndeclaredEffect) } };
 
     let mut saw_return = false;
     for op in &f.ops {
@@ -265,21 +285,13 @@ fn validate_function(f: &Function) -> Result<(), IrError> {
                 expect(*dst, RegKind::Bool)?;
                 expect(*tuple, RegKind::Tuple)?;
             }
-            Op::CheckPremises {
-                tuple,
-                evidence_regs,
-                ..
-            } => {
+            Op::CheckPremises { tuple, evidence_regs, .. } => {
                 expect(*tuple, RegKind::Tuple)?;
                 for r in evidence_regs {
                     expect(*r, RegKind::Evidence)?;
                 }
             }
-            Op::BuildEvidence {
-                dst,
-                evidence_regs,
-                ..
-            } => {
+            Op::BuildEvidence { dst, evidence_regs, .. } => {
                 expect(*dst, RegKind::Evidence)?;
                 for r in evidence_regs {
                     expect(*r, RegKind::Evidence)?;
@@ -294,9 +306,7 @@ fn validate_function(f: &Function) -> Result<(), IrError> {
                 expect(*dst, RegKind::Value)?;
                 expect(*source, RegKind::Value)?;
             }
-            Op::SwitchView {
-                dst, observation, ..
-            } => {
+            Op::SwitchView { dst, observation, .. } => {
                 need_effect(Effect::TransportView)?;
                 expect(*dst, RegKind::Value)?;
                 expect(*observation, RegKind::Value)?;
@@ -343,13 +353,7 @@ mod tests {
                 name: "bad".into(),
                 regs: vec![RegKind::Evidence, RegKind::Status],
                 effects: vec![],
-                ops: vec![
-                    Op::EmitCandidate {
-                        relation: RelationId(1),
-                        evidence: Reg(0),
-                    },
-                    Op::ReturnStatus { status: Reg(1) },
-                ],
+                ops: vec![Op::EmitCandidate { relation: RelationId(1), evidence: Reg(0) }, Op::ReturnStatus { status: Reg(1) }],
             }],
         };
         assert_eq!(m.validate(), Err(IrError::UndeclaredEffect));
@@ -363,10 +367,7 @@ mod tests {
                 name: "bad".into(),
                 regs: vec![RegKind::Node],
                 effects: vec![],
-                ops: vec![Op::LoadNode {
-                    dst: Reg(0),
-                    node: NodeId(1),
-                }],
+                ops: vec![Op::LoadNode { dst: Reg(0), node: NodeId(1) }],
             }],
         };
         assert_eq!(m.validate(), Err(IrError::MissingReturn));

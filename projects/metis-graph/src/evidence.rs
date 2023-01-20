@@ -9,9 +9,11 @@
 
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, JudgmentLane, WorldId};
-use super::derivation_rules::{EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY, DerivationRegistry};
-use super::Graph;
+use super::{
+    Graph,
+    admission::{AdmittedRelation, JudgmentLane, WorldId},
+    derivation_rules::{DerivationRegistry, EQUAL_REFL, EQUAL_SYMMETRY, EQUAL_TRANSITIVITY},
+};
 
 /// Atomic judgment `R(p, q)` (binary foundation slice).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -28,11 +30,7 @@ pub enum Evidence {
     /// Local hypothesis. Does **not** enter `Inner(W)` by itself.
     Hyp { judgment: JudgmentAtom },
     /// Rule application `app(ρ, σ, e₁…eₙ)` with an explicit conclusion atom (σ result).
-    App {
-        rule: String,
-        premises: Vec<Evidence>,
-        conclusion: JudgmentAtom,
-    },
+    App { rule: String, premises: Vec<Evidence>, conclusion: JudgmentAtom },
 }
 
 /// Checked package: world + evidence + claimed conclusion.
@@ -123,14 +121,12 @@ pub fn evidence_from_equal_steps(
         let gen_ev = Evidence::Gen { edge: step.edge };
         let step_ev = if step.forward {
             gen_ev
-        } else {
+        }
+        else {
             Evidence::App {
                 rule: EQUAL_SYMMETRY.into(),
                 premises: vec![gen_ev],
-                conclusion: JudgmentAtom {
-                    kind: EdgeKind::Equal,
-                    endpoints: (expected_from, nxt),
-                },
+                conclusion: JudgmentAtom { kind: EdgeKind::Equal, endpoints: (expected_from, nxt) },
             }
         };
         oriented.push(step_ev);
@@ -151,10 +147,7 @@ pub fn evidence_from_equal_steps(
         acc = Evidence::App {
             rule: EQUAL_TRANSITIVITY.into(),
             premises: vec![acc, next_ev],
-            conclusion: JudgmentAtom {
-                kind: EdgeKind::Equal,
-                endpoints: (left, next_end),
-            },
+            conclusion: JudgmentAtom { kind: EdgeKind::Equal, endpoints: (left, next_end) },
         };
     }
     Ok(acc)
@@ -184,13 +177,7 @@ pub fn replay_evidence_with(
     validate_finite(evidence)?;
     let conclusion = replay_under(graph, evidence, gamma, registry)?;
     let tag = fingerprint_evidence(world, evidence, conclusion);
-    Ok(AdmittedRelation::mint(
-        world,
-        conclusion.kind,
-        conclusion.endpoints,
-        tag,
-        JudgmentLane::SingleWorldReplay,
-    ))
+    Ok(AdmittedRelation::mint(world, conclusion.kind, conclusion.endpoints, tag, JudgmentLane::SingleWorldReplay))
 }
 
 /// Replay and require the concluded judgment equals `expected`.
@@ -249,8 +236,8 @@ fn fingerprint_evidence(world: WorldId, evidence: &Evidence, conclusion: Judgmen
         world.island.get() as u64,
         world.version,
         kind_tag(conclusion.kind),
-        conclusion.endpoints.0 .0,
-        conclusion.endpoints.1 .0,
+        conclusion.endpoints.0.0,
+        conclusion.endpoints.1.0,
         u64::from(height(evidence)),
     ] {
         h ^= x;
@@ -273,9 +260,9 @@ fn fingerprint_shape(evidence: &Evidence, h: &mut u64) {
             *h = h.wrapping_mul(0x100000001b3);
             *h ^= kind_tag(judgment.kind);
             *h = h.wrapping_mul(0x100000001b3);
-            *h ^= judgment.endpoints.0 .0;
+            *h ^= judgment.endpoints.0.0;
             *h = h.wrapping_mul(0x100000001b3);
-            *h ^= judgment.endpoints.1 .0;
+            *h ^= judgment.endpoints.1.0;
             *h = h.wrapping_mul(0x100000001b3);
         }
         Evidence::App { rule, premises, conclusion } => {
@@ -287,9 +274,9 @@ fn fingerprint_shape(evidence: &Evidence, h: &mut u64) {
             }
             *h ^= kind_tag(conclusion.kind);
             *h = h.wrapping_mul(0x100000001b3);
-            *h ^= conclusion.endpoints.0 .0;
+            *h ^= conclusion.endpoints.0.0;
             *h = h.wrapping_mul(0x100000001b3);
-            *h ^= conclusion.endpoints.1 .0;
+            *h ^= conclusion.endpoints.1.0;
             *h = h.wrapping_mul(0x100000001b3);
             for p in premises {
                 fingerprint_shape(p, h);
@@ -301,9 +288,9 @@ fn fingerprint_shape(evidence: &Evidence, h: &mut u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::derivation_rules::EQUAL_SYMMETRY;
     use core::num::NonZeroU32;
     use metis_types::IslandId;
-    use crate::derivation_rules::EQUAL_SYMMETRY;
 
     fn world() -> WorldId {
         WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 1 }

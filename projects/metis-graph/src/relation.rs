@@ -5,26 +5,21 @@
 
 use metis_types::{EdgeId, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, CandidateRelation, QueryStatus, WorldId};
-use super::derivation::search_and_admit_equal;
-use super::Graph;
+use super::{
+    Graph,
+    admission::{AdmittedRelation, CandidateRelation, QueryStatus, WorldId},
+    derivation::search_and_admit_equal,
+};
 
 /// Form an outer-world candidate relation (no admission).
-pub fn form_relation(
-    world: WorldId,
-    endpoints: (NodeId, NodeId),
-    kind_edge: Option<EdgeId>,
-) -> CandidateRelation {
+pub fn form_relation(world: WorldId, endpoints: (NodeId, NodeId), kind_edge: Option<EdgeId>) -> CandidateRelation {
     CandidateRelation { world, kind_edge, endpoints }
 }
 
 /// Compose two admitted EQ relations in the same world when they share an endpoint.
 ///
 /// `a: x ~ y` and `b: y ~ z` yield candidate `x ~ z`. Does **not** mint admission.
-pub fn compose_equal_relations(
-    left: AdmittedRelation,
-    right: AdmittedRelation,
-) -> Result<CandidateRelation, MetisError> {
+pub fn compose_equal_relations(left: AdmittedRelation, right: AdmittedRelation) -> Result<CandidateRelation, MetisError> {
     if left.world() != right.world() {
         return Err(MetisError::ProofInvalid);
     }
@@ -76,30 +71,12 @@ mod tests {
     #[test]
     fn compose_requires_shared_endpoint() {
         let w = world(1);
-        let a = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            1,
-            JudgmentLane::SingleWorldReplay,
-        );
-        let b = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(1), NodeId(2)),
-            2,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let a = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1, JudgmentLane::SingleWorldReplay);
+        let b = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(1), NodeId(2)), 2, JudgmentLane::SingleWorldReplay);
         let c = compose_equal_relations(a, b).unwrap();
         assert_eq!(c.endpoints, (NodeId(0), NodeId(2)));
 
-        let bad = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(3), NodeId(4)),
-            3,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let bad = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(3), NodeId(4)), 3, JudgmentLane::SingleWorldReplay);
         assert_eq!(compose_equal_relations(a, bad).unwrap_err(), MetisError::ProofInvalid);
     }
 

@@ -10,9 +10,11 @@ use std::collections::HashMap;
 
 use metis_types::{EdgeKind, MetisError, NodeId};
 
-use super::admission::{AdmittedRelation, QueryStatus, WorldId, query_status_of_admitted};
-use super::evidence::{Evidence, JudgmentAtom};
-use super::evidence_dag::{EvidenceDag, EvidenceId};
+use super::{
+    admission::{AdmittedRelation, QueryStatus, WorldId, query_status_of_admitted},
+    evidence::{Evidence, JudgmentAtom},
+    evidence_dag::{EvidenceDag, EvidenceId},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct JudgmentKey {
@@ -120,7 +122,8 @@ impl InnerTable {
 
     /// Snapshot checked atoms of `kind` in Inner for `world`.
     pub fn memberships_of(&self, world: WorldId, kind: EdgeKind) -> Vec<(JudgmentAtom, Evidence)> {
-        let Some(map) = self.by_world.get(&world) else {
+        let Some(map) = self.by_world.get(&world)
+        else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -128,29 +131,36 @@ impl InnerTable {
             if key.kind != kind {
                 continue;
             }
-            let Some(eid) = entry.evidence else { continue };
-            let Ok(evidence) = self.dag.expand(eid) else { continue };
-            out.push((
-                JudgmentAtom { kind, endpoints: (key.left, key.right) },
-                evidence,
-            ));
+            let Some(eid) = entry.evidence
+            else {
+                continue;
+            };
+            let Ok(evidence) = self.dag.expand(eid)
+            else {
+                continue;
+            };
+            out.push((JudgmentAtom { kind, endpoints: (key.left, key.right) }, evidence));
         }
         out
     }
 
     /// Snapshot all checked atoms in Inner for `world`.
     pub fn memberships(&self, world: WorldId) -> Vec<(JudgmentAtom, Evidence)> {
-        let Some(map) = self.by_world.get(&world) else {
+        let Some(map) = self.by_world.get(&world)
+        else {
             return Vec::new();
         };
         let mut out = Vec::new();
         for (key, entry) in map {
-            let Some(eid) = entry.evidence else { continue };
-            let Ok(evidence) = self.dag.expand(eid) else { continue };
-            out.push((
-                JudgmentAtom { kind: key.kind, endpoints: (key.left, key.right) },
-                evidence,
-            ));
+            let Some(eid) = entry.evidence
+            else {
+                continue;
+            };
+            let Ok(evidence) = self.dag.expand(eid)
+            else {
+                continue;
+            };
+            out.push((JudgmentAtom { kind: key.kind, endpoints: (key.left, key.right) }, evidence));
         }
         out
     }
@@ -163,8 +173,7 @@ impl InnerTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admission::JudgmentLane;
-    use crate::derivation_rules::EQUAL_TRANSITIVITY;
+    use crate::{admission::JudgmentLane, derivation_rules::EQUAL_TRANSITIVITY};
     use core::num::NonZeroU32;
     use metis_types::{EdgeId, IslandId};
 
@@ -178,18 +187,9 @@ mod tests {
         let evidence = Evidence::App {
             rule: "equal_refl".into(),
             premises: Vec::new(),
-            conclusion: JudgmentAtom {
-                kind: EdgeKind::Equal,
-                endpoints: (NodeId(0), NodeId(0)),
-            },
+            conclusion: JudgmentAtom { kind: EdgeKind::Equal, endpoints: (NodeId(0), NodeId(0)) },
         };
-        let rel = AdmittedRelation::mint(
-            world(),
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(0)),
-            9,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let rel = AdmittedRelation::mint(world(), EdgeKind::Equal, (NodeId(0), NodeId(0)), 9, JudgmentLane::SingleWorldReplay);
         inner.insert_checked(rel, evidence).unwrap();
         assert_eq!(inner.query(world(), EdgeKind::Equal, (NodeId(0), NodeId(0))), QueryStatus::Proven);
         assert_eq!(inner.len_world(world()), 1);
@@ -198,13 +198,7 @@ mod tests {
     #[test]
     fn bare_insert_without_evidence_is_not_proven() {
         let mut inner = InnerTable::new();
-        let rel = AdmittedRelation::mint(
-            world(),
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            9,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let rel = AdmittedRelation::mint(world(), EdgeKind::Equal, (NodeId(0), NodeId(1)), 9, JudgmentLane::SingleWorldReplay);
         inner.insert(rel).unwrap();
         assert_eq!(inner.query(world(), EdgeKind::Equal, (NodeId(0), NodeId(1))), QueryStatus::Unknown);
         assert!(inner.get(world(), EdgeKind::Equal, (NodeId(0), NodeId(1))).is_some());
@@ -213,13 +207,8 @@ mod tests {
     #[test]
     fn reject_transport_lane() {
         let mut inner = InnerTable::new();
-        let rel = AdmittedRelation::mint(
-            world(),
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            9,
-            JudgmentLane::BootstrapOuterTransport,
-        );
+        let rel =
+            AdmittedRelation::mint(world(), EdgeKind::Equal, (NodeId(0), NodeId(1)), 9, JudgmentLane::BootstrapOuterTransport);
         assert_eq!(inner.insert(rel).unwrap_err(), MetisError::ProofInvalid);
         assert!(inner.is_empty());
     }
@@ -230,23 +219,11 @@ mod tests {
         let evidence = Evidence::App {
             rule: "equal_refl".into(),
             premises: Vec::new(),
-            conclusion: JudgmentAtom {
-                kind: EdgeKind::Equal,
-                endpoints: (NodeId(0), NodeId(0)),
-            },
+            conclusion: JudgmentAtom { kind: EdgeKind::Equal, endpoints: (NodeId(0), NodeId(0)) },
         };
-        let rel = AdmittedRelation::mint(
-            world(),
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(0)),
-            1,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let rel = AdmittedRelation::mint(world(), EdgeKind::Equal, (NodeId(0), NodeId(0)), 1, JudgmentLane::SingleWorldReplay);
         inner.insert_checked(rel, evidence.clone()).unwrap();
-        assert_eq!(
-            inner.evidence_of(world(), EdgeKind::Equal, (NodeId(0), NodeId(0))),
-            Some(evidence)
-        );
+        assert_eq!(inner.evidence_of(world(), EdgeKind::Equal, (NodeId(0), NodeId(0))), Some(evidence));
     }
 
     #[test]
@@ -256,10 +233,7 @@ mod tests {
         let shared = Evidence::App {
             rule: EQUAL_TRANSITIVITY.into(),
             premises: vec![leaf.clone(), leaf],
-            conclusion: JudgmentAtom {
-                kind: EdgeKind::Equal,
-                endpoints: (NodeId(0), NodeId(2)),
-            },
+            conclusion: JudgmentAtom { kind: EdgeKind::Equal, endpoints: (NodeId(0), NodeId(2)) },
         };
         let w1 = world();
         let w2 = WorldId { island: w1.island, version: 2 };

@@ -9,8 +9,7 @@
 //! [`Goal::NotEqual`] / [`Goal::NotMember`] remain as **finite-fragment** helpers that treat
 //! missing witnesses as negation. They must not be used as Metis's general negation semantics.
 
-use metis_graph::admission::QueryStatus;
-use metis_graph::{Graph, Step};
+use metis_graph::{Graph, Step, admission::QueryStatus};
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 pub mod zfc;
@@ -53,22 +52,12 @@ pub fn query_equal(graph: &Graph, a: NodeId, b: NodeId) -> Result<QueryStatus, M
     if a == b {
         return Ok(QueryStatus::Proven);
     }
-    Ok(if graph.find_equal_path(a, b)?.is_some() {
-        QueryStatus::Proven
-    }
-    else {
-        QueryStatus::Unknown
-    })
+    Ok(if graph.find_equal_path(a, b)?.is_some() { QueryStatus::Proven } else { QueryStatus::Unknown })
 }
 
 /// Core-aligned membership query: missing `In` → [`QueryStatus::Unknown`].
 pub fn query_member(graph: &Graph, elem: NodeId, set: NodeId) -> Result<QueryStatus, MetisError> {
-    Ok(if find_member_edge(graph, elem, set)?.is_some() {
-        QueryStatus::Proven
-    }
-    else {
-        QueryStatus::Unknown
-    })
+    Ok(if find_member_edge(graph, elem, set)?.is_some() { QueryStatus::Proven } else { QueryStatus::Unknown })
 }
 
 /// Search a proof of `goal`.

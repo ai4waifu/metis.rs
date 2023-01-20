@@ -119,9 +119,7 @@ impl AdmittedConnection {
 }
 
 fn connection_evidence_tag(c: &CandidateConnection) -> u64 {
-    let mut tag = c.source.version
-        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        .wrapping_add(c.target.version);
+    let mut tag = c.source.version.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(c.target.version);
     tag ^= match c.class {
         ConnectionClass::WorldMorphism => 1,
         ConnectionClass::BidirectionalSkeleton => 2,
@@ -166,9 +164,7 @@ pub fn admit_connection(c: &CandidateConnection) -> Result<AdmittedConnection, M
             c.relation_map.clone(),
             c.lossy,
         )),
-        ConnectionClass::BidirectionalSkeleton | ConnectionClass::GaloisClaimed => {
-            Err(MetisError::ConnectionInvalid)
-        }
+        ConnectionClass::BidirectionalSkeleton | ConnectionClass::GaloisClaimed => Err(MetisError::ConnectionInvalid),
     }
 }
 
@@ -262,13 +258,7 @@ fn transport_mapped(
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add(relation.evidence_tag())
             .wrapping_add(kind_tag(kind));
-        let adm = AdmittedRelation::mint(
-            conn.target,
-            kind,
-            relation.endpoints(),
-            tag,
-            JudgmentLane::BootstrapOuterTransport,
-        );
+        let adm = AdmittedRelation::mint(conn.target, kind, relation.endpoints(), tag, JudgmentLane::BootstrapOuterTransport);
         return Ok((kind, adm));
     }
     let tgt_kind = *conn.relation_map.get(&kind).ok_or(MetisError::ConnectionInvalid)?;
@@ -280,13 +270,7 @@ fn transport_mapped(
         .wrapping_mul(0x9E37_79B9_7F4A_7C15)
         .wrapping_add(relation.evidence_tag())
         .wrapping_add(kind_tag(kind));
-    let adm = AdmittedRelation::mint(
-        conn.target,
-        tgt_kind,
-        (left_t, right_t),
-        tag,
-        JudgmentLane::BootstrapOuterTransport,
-    );
+    let adm = AdmittedRelation::mint(conn.target, tgt_kind, (left_t, right_t), tag, JudgmentLane::BootstrapOuterTransport);
     Ok((tgt_kind, adm))
 }
 
@@ -332,10 +316,7 @@ pub fn identity_morphism(world: WorldId) -> CandidateConnection {
 /// Compose admitted morphisms `second ∘ first` (apply `first`, then `second`).
 ///
 /// Yields an outer [`CandidateConnection`] — still needs [`admit_connection`].
-pub fn compose_connections(
-    first: &AdmittedConnection,
-    second: &AdmittedConnection,
-) -> Result<CandidateConnection, MetisError> {
+pub fn compose_connections(first: &AdmittedConnection, second: &AdmittedConnection) -> Result<CandidateConnection, MetisError> {
     if first.target() != second.source() {
         return Err(MetisError::ConnectionInvalid);
     }
@@ -431,10 +412,7 @@ mod tests {
     #[test]
     fn same_world_rejected() {
         let a = world(1, 1);
-        assert_eq!(
-            bidirectional_skeleton(a, a, HashMap::new(), HashMap::new()).unwrap_err(),
-            MetisError::ConnectionInvalid
-        );
+        assert_eq!(bidirectional_skeleton(a, a, HashMap::new(), HashMap::new()).unwrap_err(), MetisError::ConnectionInvalid);
     }
 
     #[test]
@@ -485,34 +463,17 @@ mod tests {
             lossy: false,
         };
         let conn = admit_connection(&morph).unwrap();
-        let rel = AdmittedRelation::mint(
-            a,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            42,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let rel = AdmittedRelation::mint(a, EdgeKind::Equal, (NodeId(0), NodeId(1)), 42, JudgmentLane::SingleWorldReplay);
         let moved = transport_relation(&conn, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.world(), b);
         assert_eq!(moved.endpoints(), (NodeId(10), NodeId(11)));
         assert!(!moved.is_trusted_path_candidate());
         assert_eq!(moved.lane(), JudgmentLane::BootstrapOuterTransport);
 
-        let wrong_world = AdmittedRelation::mint(
-            b,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            1,
-            JudgmentLane::SingleWorldReplay,
-        );
-        assert_eq!(
-            transport_relation(&conn, wrong_world, EdgeKind::Equal).unwrap_err(),
-            MetisError::ConnectionInvalid
-        );
-        assert_eq!(
-            transport_relation(&conn, rel, EdgeKind::In).unwrap_err(),
-            MetisError::ConnectionInvalid
-        );
+        let wrong_world =
+            AdmittedRelation::mint(b, EdgeKind::Equal, (NodeId(0), NodeId(1)), 1, JudgmentLane::SingleWorldReplay);
+        assert_eq!(transport_relation(&conn, wrong_world, EdgeKind::Equal).unwrap_err(), MetisError::ConnectionInvalid);
+        assert_eq!(transport_relation(&conn, rel, EdgeKind::In).unwrap_err(), MetisError::ConnectionInvalid);
     }
 
     #[test]
@@ -532,13 +493,7 @@ mod tests {
             lossy: false,
         };
         let conn = admit_connection(&morph).unwrap();
-        let rel = AdmittedRelation::mint(
-            a,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            3,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let rel = AdmittedRelation::mint(a, EdgeKind::Equal, (NodeId(0), NodeId(1)), 3, JudgmentLane::SingleWorldReplay);
         let (moved, edge) = transport_relation_asserting(&mut tgt, &conn, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.endpoints(), (t0, t1));
         let (from, kind, to) = tgt.edge(edge).unwrap();
@@ -552,13 +507,7 @@ mod tests {
         let id = admit_connection(&identity_morphism(w)).unwrap();
         assert_eq!(id.source(), w);
         assert_eq!(id.target(), w);
-        let rel = AdmittedRelation::mint(
-            w,
-            EdgeKind::Equal,
-            (NodeId(3), NodeId(4)),
-            1,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let rel = AdmittedRelation::mint(w, EdgeKind::Equal, (NodeId(3), NodeId(4)), 1, JudgmentLane::SingleWorldReplay);
         let moved = transport_relation(&id, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.endpoints(), (NodeId(3), NodeId(4)));
         assert_eq!(moved.world(), w);
@@ -657,10 +606,7 @@ mod tests {
 
     #[test]
     fn bootstrap_cannot_mint_transport_witness() {
-        assert_eq!(
-            TransportWitness::try_mint_bootstrap().unwrap_err(),
-            MetisError::ProofInvalid
-        );
+        assert_eq!(TransportWitness::try_mint_bootstrap().unwrap_err(), MetisError::ProofInvalid);
     }
 
     #[test]
@@ -676,13 +622,7 @@ mod tests {
             lossy: false,
         })
         .unwrap();
-        let rel = AdmittedRelation::mint(
-            src,
-            EdgeKind::Equal,
-            (NodeId(0), NodeId(1)),
-            7,
-            JudgmentLane::SingleWorldReplay,
-        );
+        let rel = AdmittedRelation::mint(src, EdgeKind::Equal, (NodeId(0), NodeId(1)), 7, JudgmentLane::SingleWorldReplay);
         let moved = bootstrap_transport_relation(&conn, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.lane(), JudgmentLane::BootstrapOuterTransport);
         assert_eq!(transport_query_status(moved), QueryStatus::Unknown);

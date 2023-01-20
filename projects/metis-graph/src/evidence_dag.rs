@@ -24,22 +24,14 @@ impl EvidenceId {
 enum NodeKey {
     Gen { edge: EdgeId },
     Hyp { judgment: JudgmentAtom },
-    App {
-        rule: String,
-        premises: Vec<EvidenceId>,
-        conclusion: JudgmentAtom,
-    },
+    App { rule: String, premises: Vec<EvidenceId>, conclusion: JudgmentAtom },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Node {
     Gen { edge: EdgeId },
     Hyp { judgment: JudgmentAtom },
-    App {
-        rule: String,
-        premises: Vec<EvidenceId>,
-        conclusion: JudgmentAtom,
-    },
+    App { rule: String, premises: Vec<EvidenceId>, conclusion: JudgmentAtom },
 }
 
 /// Hash-consed evidence DAG for one elaborator / world session.
@@ -77,11 +69,7 @@ impl EvidenceDag {
                 for p in premises {
                     prem_ids.push(self.intern_unchecked(p)?);
                 }
-                self.intern_key(NodeKey::App {
-                    rule: rule.clone(),
-                    premises: prem_ids,
-                    conclusion: *conclusion,
-                })
+                self.intern_key(NodeKey::App { rule: rule.clone(), premises: prem_ids, conclusion: *conclusion })
             }
         }
     }
@@ -97,11 +85,9 @@ impl EvidenceDag {
         let node = match &key {
             NodeKey::Gen { edge } => Node::Gen { edge: *edge },
             NodeKey::Hyp { judgment } => Node::Hyp { judgment: *judgment },
-            NodeKey::App { rule, premises, conclusion } => Node::App {
-                rule: rule.clone(),
-                premises: premises.clone(),
-                conclusion: *conclusion,
-            },
+            NodeKey::App { rule, premises, conclusion } => {
+                Node::App { rule: rule.clone(), premises: premises.clone(), conclusion: *conclusion }
+            }
         };
         self.nodes.push(node);
         self.cons.insert(key, id);
@@ -119,11 +105,7 @@ impl EvidenceDag {
                 for p in premises {
                     prem.push(self.expand(*p)?);
                 }
-                Evidence::App {
-                    rule: rule.clone(),
-                    premises: prem,
-                    conclusion: *conclusion,
-                }
+                Evidence::App { rule: rule.clone(), premises: prem, conclusion: *conclusion }
             }
         })
     }
@@ -150,11 +132,8 @@ mod tests {
     fn identical_subtrees_share_one_node() {
         let mut dag = EvidenceDag::new();
         let leaf = Evidence::Gen { edge: EdgeId(7) };
-        let left = Evidence::App {
-            rule: EQUAL_TRANSITIVITY.into(),
-            premises: vec![leaf.clone(), leaf.clone()],
-            conclusion: eq(0, 2),
-        };
+        let left =
+            Evidence::App { rule: EQUAL_TRANSITIVITY.into(), premises: vec![leaf.clone(), leaf.clone()], conclusion: eq(0, 2) };
         let id = dag.intern(&left).unwrap();
         // Gen once + App once = 2 nodes (not 3).
         assert_eq!(dag.len(), 2);

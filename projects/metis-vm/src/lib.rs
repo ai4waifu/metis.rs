@@ -5,14 +5,16 @@
 //! worlds, or depend on JIT. Kernel interaction goes through [`KernelView`].
 
 use athena_gc::GcMode;
-use metis_graph::admission::WorldId;
-use metis_graph::derivation_rules::EQUAL_TRANSITIVITY;
-use metis_graph::evidence::{concluded_judgment, Evidence, JudgmentAtom};
-use metis_graph::Graph;
+use metis_graph::{
+    Graph,
+    admission::WorldId,
+    derivation_rules::EQUAL_TRANSITIVITY,
+    evidence::{Evidence, JudgmentAtom, concluded_judgment},
+};
 use metis_ir::{Effect, Function, IrError, Module, Op, Reg, RegKind, RelationId, RuleId};
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
-pub use metis_ir::{equal_transitivity_join_plan, REL_EQUAL, RULE_EQUAL_TRANSITIVITY};
+pub use metis_ir::{REL_EQUAL, RULE_EQUAL_TRANSITIVITY, equal_transitivity_join_plan};
 
 /// Query / plan outcome surface aligned with Metis four-state answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,10 +37,7 @@ pub struct Budget {
 
 impl Budget {
     pub fn new(fuel: u64) -> Self {
-        Self {
-            fuel,
-            cancelled: false,
-        }
+        Self { fuel, cancelled: false }
     }
 
     pub fn tick(&mut self) -> Result<(), VmError> {
@@ -76,10 +75,7 @@ pub struct Frame {
 
 impl Frame {
     pub fn for_function(f: &Function) -> Self {
-        Self {
-            regs: f.regs.iter().map(|_| Slot::Empty).collect(),
-            ip: 0,
-        }
+        Self { regs: f.regs.iter().map(|_| Slot::Empty).collect(), ip: 0 }
     }
 
     fn get(&self, r: Reg) -> Result<&Slot, VmError> {
@@ -99,28 +95,11 @@ pub trait KernelView {
     fn load_evidence(&self, evidence: u64) -> Result<u64, VmError>;
     fn gen_from_edge(&mut self, edge: u64) -> Result<u64, VmError>;
     fn edge_target(&self, edge: u64) -> Result<NodeId, VmError>;
-    fn scan_out(
-        &mut self,
-        node: NodeId,
-        relation_filter: Option<RelationId>,
-    ) -> Result<u32, VmError>;
-    fn scan_in(
-        &mut self,
-        node: NodeId,
-        relation_filter: Option<RelationId>,
-    ) -> Result<u32, VmError>;
+    fn scan_out(&mut self, node: NodeId, relation_filter: Option<RelationId>) -> Result<u32, VmError>;
+    fn scan_in(&mut self, node: NodeId, relation_filter: Option<RelationId>) -> Result<u32, VmError>;
     fn next(&mut self, iter: u32) -> Result<Option<u64>, VmError>;
-    fn check_premises(
-        &self,
-        rule: RuleId,
-        tuple: u32,
-        evidence: &[u64],
-    ) -> Result<bool, VmError>;
-    fn build_evidence(
-        &mut self,
-        rule: RuleId,
-        evidence: &[u64],
-    ) -> Result<u64, VmError>;
+    fn check_premises(&self, rule: RuleId, tuple: u32, evidence: &[u64]) -> Result<bool, VmError>;
+    fn build_evidence(&mut self, rule: RuleId, evidence: &[u64]) -> Result<u64, VmError>;
     fn emit_candidate(&mut self, relation: RelationId, evidence: u64) -> Result<(), VmError>;
     fn world_fingerprint(&self) -> u64;
 }
@@ -194,18 +173,11 @@ impl<'a> GraphKernel<'a> {
     }
 
     fn relation_kind(&self, id: RelationId) -> Result<EdgeKind, VmError> {
-        self.relation_kinds
-            .get(id.0 as usize)
-            .copied()
-            .flatten()
-            .ok_or(VmError::UnknownRelation)
+        self.relation_kinds.get(id.0 as usize).copied().flatten().ok_or(VmError::UnknownRelation)
     }
 
     fn rule_name(&self, id: RuleId) -> Result<&str, VmError> {
-        self.rule_names
-            .get(id.0 as usize)
-            .and_then(|s| s.as_deref())
-            .ok_or(VmError::UnknownRule)
+        self.rule_names.get(id.0 as usize).and_then(|s| s.as_deref()).ok_or(VmError::UnknownRule)
     }
 
     fn push_scan(&mut self, edges: Vec<EdgeId>) -> u32 {
@@ -223,11 +195,7 @@ impl<'a> GraphKernel<'a> {
 
     /// Host-side Living `14` search: find `Equal(a,b)` and `Equal(b,c)`, build
     /// `app(equal_transitivity, …)`, emit a candidate. Does not admit.
-    pub fn search_equal_transitivity(
-        &mut self,
-        a: NodeId,
-        c: NodeId,
-    ) -> Result<Option<u64>, VmError> {
+    pub fn search_equal_transitivity(&mut self, a: NodeId, c: NodeId) -> Result<Option<u64>, VmError> {
         let outs = self.graph.judgment_outgoing_of_kind(a, EdgeKind::Equal)?;
         for (e_ab, b) in outs {
             let seconds = self.graph.judgment_outgoing_of_kind(b, EdgeKind::Equal)?;
@@ -270,11 +238,7 @@ impl<'a> KernelView for GraphKernel<'a> {
         Ok(to)
     }
 
-    fn scan_out(
-        &mut self,
-        node: NodeId,
-        relation_filter: Option<RelationId>,
-    ) -> Result<u32, VmError> {
+    fn scan_out(&mut self, node: NodeId, relation_filter: Option<RelationId>) -> Result<u32, VmError> {
         let want = self.filter_kind(relation_filter)?;
         let mut edges = Vec::new();
         for (edge, kind, _to) in self.graph.judgment_outgoing(node)? {
@@ -285,11 +249,7 @@ impl<'a> KernelView for GraphKernel<'a> {
         Ok(self.push_scan(edges))
     }
 
-    fn scan_in(
-        &mut self,
-        node: NodeId,
-        relation_filter: Option<RelationId>,
-    ) -> Result<u32, VmError> {
+    fn scan_in(&mut self, node: NodeId, relation_filter: Option<RelationId>) -> Result<u32, VmError> {
         let want = self.filter_kind(relation_filter)?;
         let mut edges = Vec::new();
         for (edge, kind, _from) in self.graph.judgment_incoming(node)? {
@@ -301,10 +261,7 @@ impl<'a> KernelView for GraphKernel<'a> {
     }
 
     fn next(&mut self, iter: u32) -> Result<Option<u64>, VmError> {
-        let cursor = self
-            .iterators
-            .get_mut(iter as usize)
-            .ok_or(VmError::BadIterator)?;
+        let cursor = self.iterators.get_mut(iter as usize).ok_or(VmError::BadIterator)?;
         if cursor.cursor >= cursor.edges.len() {
             return Ok(None);
         }
@@ -313,12 +270,7 @@ impl<'a> KernelView for GraphKernel<'a> {
         Ok(Some(edge.0))
     }
 
-    fn check_premises(
-        &self,
-        rule: RuleId,
-        _tuple: u32,
-        evidence: &[u64],
-    ) -> Result<bool, VmError> {
+    fn check_premises(&self, rule: RuleId, _tuple: u32, evidence: &[u64]) -> Result<bool, VmError> {
         let name = self.rule_name(rule)?;
         if name != EQUAL_TRANSITIVITY || evidence.len() != 2 {
             return Ok(false);
@@ -327,16 +279,10 @@ impl<'a> KernelView for GraphKernel<'a> {
         let e1 = self.evidence.get(evidence[1] as usize).ok_or(VmError::BadEvidence)?;
         let j0 = concluded_judgment(self.graph, e0)?;
         let j1 = concluded_judgment(self.graph, e1)?;
-        Ok(j0.kind == EdgeKind::Equal
-            && j1.kind == EdgeKind::Equal
-            && j0.endpoints.1 == j1.endpoints.0)
+        Ok(j0.kind == EdgeKind::Equal && j1.kind == EdgeKind::Equal && j0.endpoints.1 == j1.endpoints.0)
     }
 
-    fn build_evidence(
-        &mut self,
-        rule: RuleId,
-        evidence: &[u64],
-    ) -> Result<u64, VmError> {
+    fn build_evidence(&mut self, rule: RuleId, evidence: &[u64]) -> Result<u64, VmError> {
         let name = self.rule_name(rule)?.to_string();
         if name != EQUAL_TRANSITIVITY {
             return Err(VmError::Unimplemented("BuildEvidence: non-EQ rule"));
@@ -344,51 +290,22 @@ impl<'a> KernelView for GraphKernel<'a> {
         if evidence.len() != 2 {
             return Err(VmError::Metis(MetisError::ProofInvalid));
         }
-        let p0 = self
-            .evidence
-            .get(evidence[0] as usize)
-            .cloned()
-            .ok_or(VmError::BadEvidence)?;
-        let p1 = self
-            .evidence
-            .get(evidence[1] as usize)
-            .cloned()
-            .ok_or(VmError::BadEvidence)?;
+        let p0 = self.evidence.get(evidence[0] as usize).cloned().ok_or(VmError::BadEvidence)?;
+        let p1 = self.evidence.get(evidence[1] as usize).cloned().ok_or(VmError::BadEvidence)?;
         let j0 = concluded_judgment(self.graph, &p0)?;
         let j1 = concluded_judgment(self.graph, &p1)?;
-        if j0.kind != EdgeKind::Equal
-            || j1.kind != EdgeKind::Equal
-            || j0.endpoints.1 != j1.endpoints.0
-        {
+        if j0.kind != EdgeKind::Equal || j1.kind != EdgeKind::Equal || j0.endpoints.1 != j1.endpoints.0 {
             return Err(VmError::Metis(MetisError::ProofInvalid));
         }
-        let conclusion = JudgmentAtom {
-            kind: EdgeKind::Equal,
-            endpoints: (j0.endpoints.0, j1.endpoints.1),
-        };
+        let conclusion = JudgmentAtom { kind: EdgeKind::Equal, endpoints: (j0.endpoints.0, j1.endpoints.1) };
         let id = self.evidence.len() as u64;
-        self.evidence.push(Evidence::App {
-            rule: name,
-            premises: vec![p0, p1],
-            conclusion,
-        });
+        self.evidence.push(Evidence::App { rule: name, premises: vec![p0, p1], conclusion });
         Ok(id)
     }
 
-    fn emit_candidate(
-        &mut self,
-        relation: RelationId,
-        evidence: u64,
-    ) -> Result<(), VmError> {
-        let ev = self
-            .evidence
-            .get(evidence as usize)
-            .cloned()
-            .ok_or(VmError::BadEvidence)?;
-        self.candidates.push(EmittedCandidate {
-            relation,
-            evidence: ev,
-        });
+    fn emit_candidate(&mut self, relation: RelationId, evidence: u64) -> Result<(), VmError> {
+        let ev = self.evidence.get(evidence as usize).cloned().ok_or(VmError::BadEvidence)?;
+        self.candidates.push(EmittedCandidate { relation, evidence: ev });
         Ok(())
     }
 
@@ -439,11 +356,7 @@ pub struct Vm {
 
 impl Vm {
     pub fn new(fuel: u64) -> Self {
-        Self {
-            budget: Budget::new(fuel),
-            gc_mode: GcMode::default(),
-            in_flight_roots: 0,
-        }
+        Self { budget: Budget::new(fuel), gc_mode: GcMode::default(), in_flight_roots: 0 }
     }
 
     /// Enter a kernel batch: register InFlight roots (count stub for now).
@@ -462,11 +375,7 @@ impl Vm {
     }
 
     /// Validate then run the module entry function against `kernel`.
-    pub fn run(
-        &mut self,
-        module: &Module,
-        kernel: &mut dyn KernelView,
-    ) -> Result<VmStatus, VmError> {
+    pub fn run(&mut self, module: &Module, kernel: &mut dyn KernelView) -> Result<VmStatus, VmError> {
         module.validate()?;
         let f = module.entry_function()?;
         self.enter_batch();
@@ -475,11 +384,7 @@ impl Vm {
         status
     }
 
-    fn run_function(
-        &mut self,
-        f: &Function,
-        kernel: &mut dyn KernelView,
-    ) -> Result<VmStatus, VmError> {
+    fn run_function(&mut self, f: &Function, kernel: &mut dyn KernelView) -> Result<VmStatus, VmError> {
         let mut frame = Frame::for_function(f);
         for (i, kind) in f.regs.iter().enumerate() {
             if *kind == RegKind::Status {
@@ -531,21 +436,13 @@ impl Vm {
                     let b = expect_node(frame.get(*right)?)?;
                     frame.set(*dst, Slot::Bool(a == b))?;
                 }
-                Op::ScanOut {
-                    iter,
-                    node,
-                    relation_filter,
-                } => {
+                Op::ScanOut { iter, node, relation_filter } => {
                     require_effect(f, Effect::Query)?;
                     let n = expect_node(frame.get(*node)?)?;
                     let id = kernel.scan_out(n, *relation_filter)?;
                     frame.set(*iter, Slot::Iterator(id))?;
                 }
-                Op::ScanIn {
-                    iter,
-                    node,
-                    relation_filter,
-                } => {
+                Op::ScanIn { iter, node, relation_filter } => {
                     require_effect(f, Effect::Query)?;
                     let n = expect_node(frame.get(*node)?)?;
                     let id = kernel.scan_in(n, *relation_filter)?;
@@ -562,28 +459,17 @@ impl Vm {
                 Op::Match { dst, .. } => {
                     frame.set(*dst, Slot::Bool(false))?;
                 }
-                Op::CheckPremises {
-                    rule,
-                    tuple,
-                    evidence_regs,
-                } => {
+                Op::CheckPremises { rule, tuple, evidence_regs } => {
                     let t = expect_tuple(frame.get(*tuple)?)?;
                     let ev = read_evidence(&frame, evidence_regs)?;
                     let _ok = kernel.check_premises(*rule, t, &ev)?;
                 }
-                Op::BuildEvidence {
-                    dst,
-                    rule,
-                    evidence_regs,
-                } => {
+                Op::BuildEvidence { dst, rule, evidence_regs } => {
                     let ev = read_evidence(&frame, evidence_regs)?;
                     let id = kernel.build_evidence(*rule, &ev)?;
                     frame.set(*dst, Slot::Evidence(id))?;
                 }
-                Op::EmitCandidate {
-                    relation,
-                    evidence,
-                } => {
+                Op::EmitCandidate { relation, evidence } => {
                     require_effect(f, Effect::EmitCandidate)?;
                     let ev = expect_evidence(frame.get(*evidence)?)?;
                     kernel.emit_candidate(*relation, ev)?;
@@ -611,11 +497,7 @@ impl Vm {
 }
 
 fn require_effect(f: &Function, e: Effect) -> Result<(), VmError> {
-    if f.effects.contains(&e) {
-        Ok(())
-    } else {
-        Err(VmError::EffectDenied)
-    }
+    if f.effects.contains(&e) { Ok(()) } else { Err(VmError::EffectDenied) }
 }
 
 fn expect_node(s: &Slot) -> Result<NodeId, VmError> {
@@ -686,15 +568,12 @@ fn read_evidence(frame: &Frame, regs: &[Reg]) -> Result<Vec<u64>, VmError> {
 mod tests {
     use super::*;
     use core::num::NonZeroU32;
-    use metis_ir::{Effect, Function, Module, Op, Reg, RegKind};
     use metis_graph::evidence::replay_evidence;
+    use metis_ir::{Effect, Function, Module, Op, Reg, RegKind};
     use metis_types::{EdgeKind, IslandId};
 
     fn world() -> WorldId {
-        WorldId {
-            island: IslandId::from_raw(NonZeroU32::new(1).unwrap()),
-            version: 1,
-        }
+        WorldId { island: IslandId::from_raw(NonZeroU32::new(1).unwrap()), version: 1 }
     }
 
     fn equal_chain() -> (Graph, NodeId, NodeId, NodeId, EdgeId, EdgeId) {
@@ -733,12 +612,7 @@ mod tests {
                 name: "guard".into(),
                 regs: vec![RegKind::Status],
                 effects: vec![],
-                ops: vec![
-                    Op::GuardWorld {
-                        world_fingerprint: 99,
-                    },
-                    Op::ReturnStatus { status: Reg(0) },
-                ],
+                ops: vec![Op::GuardWorld { world_fingerprint: 99 }, Op::ReturnStatus { status: Reg(0) }],
             }],
         };
         let graph = Graph::default();
@@ -798,31 +672,13 @@ mod tests {
             entry: 0,
             functions: vec![Function {
                 name: "trans_app".into(),
-                regs: vec![
-                    RegKind::Evidence,
-                    RegKind::Evidence,
-                    RegKind::Evidence,
-                    RegKind::Status,
-                ],
+                regs: vec![RegKind::Evidence, RegKind::Evidence, RegKind::Evidence, RegKind::Status],
                 effects: vec![Effect::EmitCandidate],
                 ops: vec![
-                    Op::LoadEvidence {
-                        dst: Reg(0),
-                        evidence: g0,
-                    },
-                    Op::LoadEvidence {
-                        dst: Reg(1),
-                        evidence: g1,
-                    },
-                    Op::BuildEvidence {
-                        dst: Reg(2),
-                        rule: RULE_EQUAL_TRANSITIVITY,
-                        evidence_regs: vec![Reg(0), Reg(1)],
-                    },
-                    Op::EmitCandidate {
-                        relation: REL_EQUAL,
-                        evidence: Reg(2),
-                    },
+                    Op::LoadEvidence { dst: Reg(0), evidence: g0 },
+                    Op::LoadEvidence { dst: Reg(1), evidence: g1 },
+                    Op::BuildEvidence { dst: Reg(2), rule: RULE_EQUAL_TRANSITIVITY, evidence_regs: vec![Reg(0), Reg(1)] },
+                    Op::EmitCandidate { relation: REL_EQUAL, evidence: Reg(2) },
                     Op::ReturnStatus { status: Reg(3) },
                 ],
             }],
@@ -845,34 +701,14 @@ mod tests {
             entry: 0,
             functions: vec![Function {
                 name: "scan_gen".into(),
-                regs: vec![
-                    RegKind::Node,
-                    RegKind::Iterator,
-                    RegKind::Value,
-                    RegKind::Node,
-                    RegKind::Evidence,
-                    RegKind::Status,
-                ],
+                regs: vec![RegKind::Node, RegKind::Iterator, RegKind::Value, RegKind::Node, RegKind::Evidence, RegKind::Status],
                 effects: vec![Effect::Query],
                 ops: vec![
                     Op::LoadNode { dst: Reg(0), node: a },
-                    Op::ScanOut {
-                        iter: Reg(1),
-                        node: Reg(0),
-                        relation_filter: Some(REL_EQUAL),
-                    },
-                    Op::Next {
-                        dst: Reg(2),
-                        iter: Reg(1),
-                    },
-                    Op::EdgeTarget {
-                        dst: Reg(3),
-                        edge: Reg(2),
-                    },
-                    Op::GenFromEdge {
-                        dst: Reg(4),
-                        edge: Reg(2),
-                    },
+                    Op::ScanOut { iter: Reg(1), node: Reg(0), relation_filter: Some(REL_EQUAL) },
+                    Op::Next { dst: Reg(2), iter: Reg(1) },
+                    Op::EdgeTarget { dst: Reg(3), edge: Reg(2) },
+                    Op::GenFromEdge { dst: Reg(4), edge: Reg(2) },
                     Op::ReturnStatus { status: Reg(5) },
                 ],
             }],

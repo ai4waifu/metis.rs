@@ -1,19 +1,13 @@
 //! Smoke: parse / lower Living-grammar fixtures and exercise Core admission basics.
 
-use metis::{
-    EdgeKind, QueryStatus, VERSION, compile_declarations, form_relation, parse_source,
-};
+use metis::{EdgeKind, QueryStatus, VERSION, compile_declarations, form_relation, parse_source};
 
 fn main() {
     println!("metis {VERSION}");
 
     let group = include_str!("../../metis-compile/fixtures/group_theory_min.metis");
     let m = parse_source(group).expect("group_theory_min.metis");
-    println!(
-        "parsed island {} items={}",
-        m.islands[0].name,
-        m.islands[0].items.len()
-    );
+    println!("parsed island {} items={}", m.islands[0].name, m.islands[0].items.len());
 
     let low = compile_declarations(group).expect("lower group");
     let gid = low.store.lookup("std::algebra::GroupTheory").expect("GroupTheory");
@@ -39,17 +33,11 @@ fn main() {
     };
     let id = store.accept_staging("EQ").unwrap();
     let world = store.get(id).unwrap().world_id(id);
-    let adm = store
-        .admit_equal_candidate(id, form_relation(world, (a, b), None))
-        .expect("admit EQ");
+    let adm = store.admit_equal_candidate(id, form_relation(world, (a, b), None)).expect("admit EQ");
     let (st, _) = store.search_admit_equal(id, a, b).unwrap();
     assert_eq!(st, QueryStatus::Proven);
     let _ = store.admit_identity(id).expect("identity");
-    println!(
-        "core smoke: Equal proven tag={} identity_connections={}",
-        adm.evidence_tag(),
-        store.admitted_connections().len()
-    );
+    println!("core smoke: Equal proven tag={} identity_connections={}", adm.evidence_tag(), store.admitted_connections().len());
 
     let iff = include_str!("../../metis-compile/fixtures/iff_samples.metis");
     let m2 = parse_source(iff).expect("iff_samples.metis");
