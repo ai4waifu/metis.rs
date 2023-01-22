@@ -35,11 +35,10 @@ Theorems and proofs are authored in `.metis` files (see `projects/metis-compile/
 
 ## Develop
 
-External crates come from git (`athena.rs` / `oaks` on `dev`). Optional local overrides:
+External crates come from git (`athena.rs` / `oaks`), pinned by full `rev` in `Cargo.toml`. Optional local overrides (not committed):
 
 ```toml
 [patch."https://github.com/ai4waifu/athena.rs.git"]
-athena-types = { path = "../athena.rs/projects/athena-types" }
 athena-gc = { path = "../athena.rs/projects/athena-gc" }
 athena-graph = { path = "../athena.rs/projects/athena-graph" }
 
