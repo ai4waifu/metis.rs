@@ -21,7 +21,7 @@ metis-jit = { path = "projects/metis-jit" }
 metis = { path = "projects/metis" }
 athena-gc = { git = "https://github.com/ai4waifu/athena.rs.git", rev = "510220a094180da82d66ececcb907342923bb46a" }
 athena-graph = { git = "https://github.com/ai4waifu/athena.rs.git", rev = "510220a094180da82d66ececcb907342923bb46a" }
-oak-metis = { git = "https://github.com/ygg-lang/oaks.git", rev = "7c4c631967228daadde86a85da38c8617f149216", default-features = false }
+data-text-metis = { git = "https://github.com/oovm/rust-boost", rev = "71db8fa50f49e3693640cbd19e64ad9c797e5932" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

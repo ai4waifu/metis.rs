@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use metis_island::IslandStore;
 use metis_types::{EdgeKind, IslandId, MetisError, NodeId};
-use oak_metis::{Item, Module};
+use data_text_metis::{Item, Module};
 
 /// Result of lowering a parsed module into a Core-facing store.
 #[derive(Default)]
@@ -39,7 +39,7 @@ fn path_short_name(path: &str) -> &str {
     path.rsplit("::").next().unwrap_or(path)
 }
 
-fn island_register_name(island: &oak_metis::Island) -> String {
+fn island_register_name(island: &data_text_metis::Island) -> String {
     match &island.namespace {
         Some(ns) if !ns.is_empty() => format!("{ns}::{}", island.name),
         _ => island.name.clone(),
@@ -217,7 +217,7 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
 mod tests {
     use super::*;
     use metis_graph::connection::ConnectionClass;
-    use oak_metis::parse_module;
+    use data_text_metis::parse_module;
 
     #[test]
     fn lowers_group_theory_declarations() {

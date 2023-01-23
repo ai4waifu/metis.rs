@@ -16,4 +16,4 @@ metis-compile = { workspace = true }
 metis-vm = { workspace = true }
 metis-jit = { workspace = true }
 athena-gc = { workspace = true }
-oak-metis = { workspace = true }
+data-text-metis = { workspace = true }

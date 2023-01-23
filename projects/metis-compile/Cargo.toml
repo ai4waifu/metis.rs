@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Parse and lower .metis sources (oak-metis AST)"
+description = "Parse and lower .metis sources (data-text-metis AST)"
 
 [dependencies]
-oak-metis = { workspace = true }
+data-text-metis = { workspace = true }
 metis-types = { workspace = true }
 metis-island = { workspace = true }
 metis-graph = { workspace = true }

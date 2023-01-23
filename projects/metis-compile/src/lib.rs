@@ -1,6 +1,6 @@
 //! Lowering / execution entry (Living grammar).
 //!
-//! Current foundation: **parse** `.metis` via `oak-metis`, then declare islands into
+//! Current foundation: **parse** `.metis` via `data-text-metis`, then declare islands into
 //! [`IslandStore`] via [`lower_module`]. FOL prove and `action` verify are not yet
 //! implemented — do not revive the retired `Island::check` script dialect.
 
@@ -9,7 +9,7 @@ mod lower;
 pub use lower::{LoweringResult, lower_module};
 pub use metis_ir::{Function as IrFunction, Module as IrModule, Op, Reg, RegKind};
 
-use oak_metis::{Module, parse_module};
+use data_text_metis::{Module, parse_module};
 
 /// Parse Metis source into a typed module AST.
 pub fn parse_source(source: &str) -> Result<Module, String> {
@@ -25,16 +25,16 @@ pub fn compile_declarations(source: &str) -> Result<LoweringResult, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oak_metis::{BinOp, Formula, Item};
+    use data_text_metis::{BinOp, Formula, Item};
 
     const GROUP: &str = include_str!("../fixtures/group_theory_min.metis");
     const IFF: &str = include_str!("../fixtures/iff_samples.metis");
     const GRAPH: &str = include_str!("../fixtures/graph_bfs_min.metis");
 
-    fn formula_has_iff(f: &oak_metis::Formula) -> bool {
-        use oak_metis::Formula::*;
+    fn formula_has_iff(f: &data_text_metis::Formula) -> bool {
+        use data_text_metis::Formula::*;
         match f {
-            BinOp { op: oak_metis::BinOp::Iff, .. } => true,
+            BinOp { op: data_text_metis::BinOp::Iff, .. } => true,
             BinOp { left, right, .. } => formula_has_iff(left) || formula_has_iff(right),
             Forall { body, .. } | Exists { body, .. } | UnaryOp { expr: body, .. } | Group(body) => formula_has_iff(body),
             Call { args, .. } => args.iter().any(formula_has_iff),

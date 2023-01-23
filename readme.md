@@ -11,7 +11,7 @@ athena-types → athena-gc
                   ↓
 metis-types → metis-graph → metis-island → metis-verify
                   ↓              ↓
-              metis-ir ← metis-compile ← oak-metis (AST)
+              metis-ir ← metis-compile ← data-text-metis (AST)
                   ↓
               metis-vm → metis-jit → metis
 ```
@@ -27,7 +27,7 @@ metis-types → metis-graph → metis-island → metis-verify
 | `metis-compile` | Parse / lower island source toward IR |
 | `metis-vm` | Register interpreter, fuel, safepoint lifecycle |
 | `metis-jit` | Path/query compile units over shared IR |
-| `oak-metis` | Island language parse (oaks) |
+| `data-text-metis` | Island language parse (oaks) |
 | `metis` | Stable facade |
 | `metis-example` | Smoke binary |
 
@@ -43,7 +43,7 @@ athena-gc = { path = "../athena.rs/projects/athena-gc" }
 athena-graph = { path = "../athena.rs/projects/athena-graph" }
 
 [patch."https://github.com/ygg-lang/oaks.git"]
-oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
+data-text-metis = { path = "../oaks/examples/data-text-metis", default-features = false }
 ```
 
 ```shell
@@ -65,7 +65,7 @@ Requires the workspace Rust toolchain (see `rust-toolchain.toml`).
 - Connection is a world morphism first; Galois needs extra proof.
 - Query results are at least Proven / Refuted / Unknown / Inconsistent. Missing a path is not negation by default.
 - Keywords declare. Actions are static `Module::fn` paths.
-- Parsing is `oak-metis` only. Do not revive `metis-lang`.
+- Parsing is `data-text-metis` only. Do not revive `metis-lang`.
 - Frontends are skins. They must not bypass the graph kernel.
 - Metis does not replace Athena and is not a Titan / SXO / Apollo rename.
 - Metis and Athena M-Graph share philosophy only, not object models or admission contracts.

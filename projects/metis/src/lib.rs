@@ -54,7 +54,7 @@ pub use metis_island::{Island, IslandStore};
 pub use metis_jit::{Artifact, ArtifactKind, CompileUnitId, compile_reach};
 pub use metis_types::{EdgeId, EdgeKind, IslandId, MetisError, NodeId};
 pub use metis_verify::{Goal, Justification, Proof, prove, query_equal, query_member, verify, zfc};
-pub use oak_metis::{MetisLanguage, MetisTokenType, lex_stub, parse_module};
+pub use data_text_metis::{MetisLanguage, MetisTokenType, lex_stub, parse_module};
 
 /// Facade version string for smoke probes.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
