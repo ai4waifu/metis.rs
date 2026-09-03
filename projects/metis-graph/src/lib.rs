@@ -1,11 +1,14 @@
-//! Arena-backed directed relation graph with extensional hash-consing.
+//! Relation graph with extensional hash-consing.
 //!
 //! A node is identified by the sorted multiset of outgoing `(EdgeKind, NodeId)` pairs.
-//! Handles stay stable once interned; new structure is always introduced by interning.
+//! Object lifetime protocol is [`athena_gc`] — Metis does not ship a parallel GC crate.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroU32;
+use std::rc::Rc;
+use std::cell::RefCell;
 
+use athena_gc::{GcHeap, HeapBudget};
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -57,16 +60,36 @@ struct EdgeRec {
 }
 
 /// Mutable working graph (staging or accepted island body).
-#[derive(Default)]
 pub struct Graph {
     nodes: Vec<Option<NodeRec>>,
     edges: Vec<Option<EdgeRec>>,
     cons: HashMap<Vec<OutKey>, NodeId>,
+    /// Shared runtime heap (staging / accepted graphs may attach the same or distinct heaps).
+    heap: Rc<RefCell<GcHeap>>,
+}
+
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Graph {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_heap(GcHeap::new(HeapBudget::default()))
+    }
+
+    pub fn with_heap(heap: Rc<RefCell<GcHeap>>) -> Self {
+        Self {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            cons: HashMap::new(),
+            heap,
+        }
+    }
+
+    pub fn heap(&self) -> &Rc<RefCell<GcHeap>> {
+        &self.heap
     }
 
     fn alloc_node_slot(&mut self) -> Result<NodeId, MetisError> {

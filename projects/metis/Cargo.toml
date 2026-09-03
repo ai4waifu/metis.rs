@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Metis stable facade: relation graph, islands, language stub"
+description = "Metis stable facade: relation graph, islands, JIT, oak-metis"
 
 [dependencies]
 metis-types = { workspace = true }
 metis-graph = { workspace = true }
 metis-island = { workspace = true }
-metis-lang = { workspace = true }
+metis-jit = { workspace = true }
+athena-gc = { workspace = true }
+oak-metis = { workspace = true }

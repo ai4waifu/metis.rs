@@ -4,7 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Metis arena relation graph with hash-consing"
+description = "Metis arena relation graph with hash-consing on athena-gc"
 
 [dependencies]
 metis-types = { workspace = true }
+athena-gc = { workspace = true }

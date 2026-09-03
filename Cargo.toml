@@ -13,8 +13,11 @@ license = "MPL-2.0"
 metis-types = { path = "projects/metis-types" }
 metis-graph = { path = "projects/metis-graph" }
 metis-island = { path = "projects/metis-island" }
-metis-lang = { path = "projects/metis-lang" }
+metis-jit = { path = "projects/metis-jit" }
 metis = { path = "projects/metis" }
+athena-types = { path = "../athena.rs/projects/athena-types" }
+athena-gc = { path = "../athena.rs/projects/athena-gc" }
+oak-metis = { path = "../oaks/examples/oak-metis", default-features = false }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
