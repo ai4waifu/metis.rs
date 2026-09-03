@@ -1,0 +1,32 @@
+namespace std::algebra
+
+island GroupTheory
+{
+    node Group
+    node Element
+
+    [op("·")]
+    relation Mul : (Element, Element) -> Element
+
+    [op("⁻¹")]
+    relation Inv : Element -> Element
+
+    axiom Associativity
+    {
+        forall (g: Group, a: Element, b: Element, c: Element)
+        (
+            (a in g) and (b in g) and (c in g)
+            ->
+            (a · b) · c == a · (b · c)
+        )
+    }
+
+    theorem FirstIsomorphismTheorem
+    {
+        forall (phi: Homomorphism, G: Group, H: Group)
+        (
+            Hom(phi, G, H) ->
+            QuotientGroup(G, Kernel(phi)) <-> Image(phi)
+        )
+    }
+}

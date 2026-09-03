@@ -1,0 +1,17 @@
+[package]
+name = "metis"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metis stable facade: graph, islands, compile, verify, JIT"
+
+[dependencies]
+metis-types = { workspace = true }
+metis-graph = { workspace = true }
+metis-island = { workspace = true }
+metis-verify = { workspace = true }
+metis-compile = { workspace = true }
+metis-jit = { workspace = true }
+athena-gc = { workspace = true }
+oak-metis = { workspace = true }

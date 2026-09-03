@@ -1,0 +1,43 @@
+namespace std::graph_theory
+
+island GraphTheory
+{
+    node Graph
+    node Vertex
+    node Edge
+
+    relation Connects : Edge -> (Vertex, Vertex)
+
+    relation PathExists : Graph -> Vertex -> Vertex -> Bool
+    {
+        forall (g: Graph, v: Vertex)
+        (
+            PathExists(g, v, v) == true
+        )
+    }
+
+    theorem PathReflexive
+    {
+        forall (g: Graph, v: Vertex)
+        (
+            PathExists(g, v, v) == true
+        )
+    }
+}
+
+namespace std::algorithms
+
+island BFS
+{
+    use GraphTheory
+
+    relation BFS : Graph -> Vertex -> Bool
+
+    theorem BFS_Complexity
+    {
+        forall (g: Graph)
+        (
+            BFS::step_count(g) <= GraphTheory::count_vertices(g)
+        )
+    }
+}

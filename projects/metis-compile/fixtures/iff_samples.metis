@@ -1,0 +1,21 @@
+island Nat
+{
+    node Nat
+
+    rewrites AddComm
+    {
+        forall (a: Nat, b: Nat) -> a + b == b + a
+        Add(a, b) <-> Add(b, a)
+    }
+
+    theorem AddCommThm
+    {
+        forall (a: Nat, b: Nat) -> (a + b) <-> (b + a)
+    }
+}
+
+connection ZFC <-> HoTT
+{
+    alpha : ZFC::Set -> HoTT::Type
+    gamma : HoTT::Type -> ZFC::Set
+}

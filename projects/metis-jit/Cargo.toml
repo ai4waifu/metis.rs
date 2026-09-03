@@ -1,0 +1,12 @@
+[package]
+name = "metis-jit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metis path/query JIT compile units"
+
+[dependencies]
+metis-types = { workspace = true }
+metis-graph = { workspace = true }
+metis-island = { workspace = true }

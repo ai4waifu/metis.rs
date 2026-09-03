@@ -1,0 +1,15 @@
+[package]
+name = "metis-types"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metis handle types and diagnostics"
+
+[dependencies]
+serde = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[features]
+default = []
+serde = ["dep:serde"]
