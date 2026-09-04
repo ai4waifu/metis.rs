@@ -5,6 +5,10 @@ pub use metis_compile::parse_source;
 pub use metis_graph::{
     Graph, Step,
     admission::{AdmittedRelation, CandidateRelation, ConflictReport, QueryStatus, WorldId, unknown_if_missing},
+    connection::{
+        AdmittedConnection, CandidateConnection, ConnectionClass, bidirectional_skeleton, refuse_galois_without_proof,
+        validate_candidate,
+    },
 };
 
 pub use metis_island::{Island, IslandStore};
