@@ -7,6 +7,9 @@
 use std::{collections::HashMap, num::NonZeroU32};
 
 use metis_graph::admission::WorldId;
+use metis_graph::connection::{
+    CandidateConnection, bidirectional_skeleton, refuse_galois_without_proof, validate_candidate,
+};
 use metis_graph::Graph;
 use metis_types::{IslandId, MetisError};
 
@@ -33,6 +36,8 @@ pub struct IslandStore {
     by_name: HashMap<String, IslandId>,
     next_id: u32,
     staging: Option<(IslandId, Island)>,
+    /// Candidate connections only — never auto-admitted as Galois.
+    connections: Vec<CandidateConnection>,
 }
 
 impl IslandStore {
@@ -117,6 +122,44 @@ impl IslandStore {
         self.islands.insert(id, island);
         Ok(id)
     }
+
+    fn require_known_world(&self, world: WorldId) -> Result<(), MetisError> {
+        let island = self.get(world.island)?;
+        if island.version != world.version {
+            return Err(MetisError::ConnectionInvalid);
+        }
+        Ok(())
+    }
+
+    /// Register a validated candidate connection (still outer-world / unverified transport).
+    ///
+    /// Bidirectional skeletons are allowed as candidates. They are **not** admitted Galois links.
+    pub fn register_connection(&mut self, candidate: CandidateConnection) -> Result<(), MetisError> {
+        validate_candidate(&candidate)?;
+        self.require_known_world(candidate.source)?;
+        self.require_known_world(candidate.target)?;
+        self.connections.push(candidate);
+        Ok(())
+    }
+
+    /// Declare surface `A <-> B` skeletons between two accepted islands' current worlds.
+    pub fn declare_bidirectional(
+        &mut self,
+        left: IslandId,
+        right: IslandId,
+    ) -> Result<(usize, usize), MetisError> {
+        let lw = self.get(left)?.world_id(left);
+        let rw = self.get(right)?.world_id(right);
+        let (fwd, back) = bidirectional_skeleton(lw, rw, HashMap::new(), HashMap::new())?;
+        self.register_connection(fwd)?;
+        self.register_connection(back)?;
+        let n = self.connections.len();
+        Ok((n - 2, n - 1))
+    }
+
+    pub fn connections(&self) -> &[CandidateConnection] {
+        &self.connections
+    }
 }
 
 #[cfg(test)]
@@ -174,5 +217,18 @@ mod tests {
         store.open_staging("draft").unwrap();
         assert_eq!(store.accept_staging("Group").unwrap_err(), MetisError::InvalidHandle);
         assert!(store.staging_id().is_some());
+    }
+
+    #[test]
+    fn bidirectional_connection_between_accepted_islands() {
+        use metis_graph::connection::ConnectionClass;
+        let mut store = IslandStore::new();
+        let a = store.register_accepted("ZFC").unwrap();
+        let b = store.register_accepted("HoTT").unwrap();
+        let (i, j) = store.declare_bidirectional(a, b).unwrap();
+        assert_eq!(store.connections().len(), 2);
+        assert_eq!(store.connections()[i].class, ConnectionClass::BidirectionalSkeleton);
+        assert_eq!(store.connections()[j].source.island, b);
+        assert!(refuse_galois_without_proof(&store.connections()[i]).is_err());
     }
 }
