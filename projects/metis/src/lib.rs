@@ -4,7 +4,7 @@ pub use athena_gc::{GcHeap, HeapBudget};
 pub use metis_compile::{LoweringResult, compile_declarations, lower_module, parse_source};
 pub use metis_graph::{
     Graph, Step,
-    admission::{AdmittedRelation, CandidateRelation, ConflictReport, QueryStatus, WorldId, unknown_if_missing},
+    admission::{AdmittedRelation, AdmittedWorld, CandidateRelation, ConflictReport, QueryStatus, WorldId, unknown_if_missing},
     conflict::{Incompatibility, detect_judgment_conflict, query_under_incompatibility},
     connection::{
         AdmittedConnection, CandidateConnection, ConnectionClass, admit_connection, bidirectional_skeleton,
