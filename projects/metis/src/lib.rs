@@ -9,6 +9,7 @@ pub use metis_graph::{
         AdmittedConnection, CandidateConnection, ConnectionClass, bidirectional_skeleton, refuse_galois_without_proof,
         validate_candidate,
     },
+    derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
 };
 
 pub use metis_island::{Island, IslandStore};
