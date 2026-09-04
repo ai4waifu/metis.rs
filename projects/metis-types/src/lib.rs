@@ -91,6 +91,8 @@ pub enum MetisError {
     EdgeNotFound,
     #[error("path not found")]
     PathNotFound,
+    #[error("proof invalid")]
+    ProofInvalid,
     #[error("capacity exhausted")]
     Capacity,
     #[error("invalid handle")]

@@ -1,17 +1,15 @@
 [package]
-name = "metis"
+name = "metis-compile"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Metis stable facade: graph, islands, compile, verify, JIT"
+description = "Lower oak-metis AST and run theorem proof scripts"
 
 [dependencies]
 metis-types = { workspace = true }
 metis-graph = { workspace = true }
-metis-island = { workspace = true }
 metis-verify = { workspace = true }
-metis-compile = { workspace = true }
-metis-jit = { workspace = true }
-athena-gc = { workspace = true }
 oak-metis = { workspace = true }
+
+[dev-dependencies]
