@@ -1,13 +1,24 @@
 //! Lowering / execution entry (Living grammar).
 //!
-//! Current foundation: **parse** `.metis` via `oak-metis`. FOL prove and `action` verify
-//! are not yet implemented — do not revive the retired `Island::check` script dialect.
+//! Current foundation: **parse** `.metis` via `oak-metis`, then declare islands into
+//! [`IslandStore`] via [`lower_module`]. FOL prove and `action` verify are not yet
+//! implemented — do not revive the retired `Island::check` script dialect.
+
+mod lower;
+
+pub use lower::{LoweringResult, lower_module};
 
 use oak_metis::{Module, parse_module};
 
 /// Parse Metis source into a typed module AST.
 pub fn parse_source(source: &str) -> Result<Module, String> {
     parse_module(source)
+}
+
+/// Parse then lower into a Core-facing [`metis_island::IslandStore`].
+pub fn compile_declarations(source: &str) -> Result<LoweringResult, String> {
+    let module = parse_source(source)?;
+    lower_module(&module).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -18,6 +29,18 @@ mod tests {
     const GROUP: &str = include_str!("../fixtures/group_theory_min.metis");
     const IFF: &str = include_str!("../fixtures/iff_samples.metis");
     const GRAPH: &str = include_str!("../fixtures/graph_bfs_min.metis");
+
+    fn formula_has_iff(f: &oak_metis::Formula) -> bool {
+        use oak_metis::Formula::*;
+        match f {
+            BinOp { op: oak_metis::BinOp::Iff, .. } => true,
+            BinOp { left, right, .. } => formula_has_iff(left) || formula_has_iff(right),
+            Forall { body, .. } | Exists { body, .. } | UnaryOp { expr: body, .. } | Group(body) => formula_has_iff(body),
+            Call { args, .. } => args.iter().any(formula_has_iff),
+            SetComp { head, pred } => formula_has_iff(head) || formula_has_iff(pred),
+            TypedName { .. } | Name(_) | String(_) => false,
+        }
+    }
 
     #[test]
     fn parse_group_theory_fixture() {
@@ -48,16 +71,10 @@ mod tests {
         assert!(m.islands.iter().any(|i| i.name == "GraphTheory"));
         assert!(m.islands.iter().any(|i| i.name == "BFS"));
     }
-}
 
-fn formula_has_iff(f: &oak_metis::Formula) -> bool {
-    use oak_metis::Formula::*;
-    match f {
-        BinOp { op: oak_metis::BinOp::Iff, .. } => true,
-        BinOp { left, right, .. } => formula_has_iff(left) || formula_has_iff(right),
-        Forall { body, .. } | Exists { body, .. } | UnaryOp { expr: body, .. } | Group(body) => formula_has_iff(body),
-        Call { args, .. } => args.iter().any(formula_has_iff),
-        SetComp { head, pred } => formula_has_iff(head) || formula_has_iff(pred),
-        TypedName { .. } | Name(_) | String(_) => false,
+    #[test]
+    fn compile_declarations_group_fixture() {
+        let low = compile_declarations(GROUP).expect("compile");
+        assert!(low.store.lookup("GroupTheory").is_some());
     }
 }
