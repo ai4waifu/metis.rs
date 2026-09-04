@@ -26,6 +26,18 @@ pub struct WorldId {
     pub version: u64,
 }
 
+/// Whether further outer-world admissions may enter this world version.
+///
+/// Distinct from [`crate::Graph::seal`]: Metis judgment / hash-cons state stays queryable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum ObservationBoundary {
+    /// Outer candidates may still be proposed for admission into this world version.
+    #[default]
+    Open,
+    /// Observation closed: no further transport / morphism admission *into* this version.
+    Sealed,
+}
+
 /// Candidate relation awaiting admission (outer world).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CandidateRelation {
@@ -137,5 +149,10 @@ mod tests {
         let b = AdmittedWorld::admit(w);
         assert_eq!(a, b);
         assert_eq!(a.world(), w);
+    }
+
+    #[test]
+    fn observation_defaults_open() {
+        assert_eq!(ObservationBoundary::default(), ObservationBoundary::Open);
     }
 }
