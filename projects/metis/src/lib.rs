@@ -3,7 +3,7 @@
 pub use athena_gc::{GcHeap, HeapBudget};
 pub use metis_compile::{LoweringResult, compile_declarations, lower_module, parse_source};
 pub use metis_graph::{
-    Graph, Step,
+    EdgePayload, Graph, NodePayload, Step,
     admission::{
         AdmittedRelation, AdmittedWorld, CandidateRelation, ConflictReport, ObservationBoundary, QueryStatus, WorldId,
         unknown_if_missing,
