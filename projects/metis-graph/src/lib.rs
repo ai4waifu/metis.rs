@@ -3,7 +3,7 @@
 //! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] (not CAS M-Graph).
 //! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
 //! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
-//! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`transform`], [`conflict`].
+//! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`transform`], [`conflict`], [`rules`].
 
 use std::{
     cell::RefCell,
@@ -22,6 +22,7 @@ pub mod admission;
 pub mod conflict;
 pub mod connection;
 pub mod derivation;
+pub mod rules;
 pub mod transform;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

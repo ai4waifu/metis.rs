@@ -11,6 +11,7 @@ pub use metis_graph::{
         validate_candidate,
     },
     derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
+    rules::{RelationSignature, RuleTable},
     transform::{PremisePattern, TransformationInstance, TransformationSchema, replay_two_premise},
 };
 
