@@ -9,7 +9,7 @@ use std::{
     num::NonZeroU32,
 };
 
-use metis_graph::admission::{AdmittedRelation, AdmittedWorld, WorldId};
+use metis_graph::admission::{AdmittedRelation, AdmittedWorld, ObservationBoundary, WorldId};
 use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
 use metis_graph::connection::{
     AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton, transport_relation,
@@ -29,6 +29,8 @@ pub struct Island {
     pub version: u64,
     /// Declared generating kinds + transformation schemas for this world.
     pub rules: RuleTable,
+    /// Whether further admissions may enter this accepted world version.
+    pub observation: ObservationBoundary,
 }
 
 impl Island {
@@ -39,12 +41,17 @@ impl Island {
             accepted,
             version,
             rules: RuleTable::default(),
+            observation: ObservationBoundary::Open,
         }
     }
 
     /// Relative world handle for Core admission context.
     pub fn world_id(&self, id: IslandId) -> WorldId {
         WorldId { island: id, version: self.version }
+    }
+
+    pub const fn is_sealed(&self) -> bool {
+        matches!(self.observation, ObservationBoundary::Sealed)
     }
 }
 
@@ -183,6 +190,30 @@ impl IslandStore {
         self.admitted_worlds.iter().copied().find(|w| w.world() == current)
     }
 
+    /// Close the observation boundary for an accepted world version.
+    ///
+    /// Does **not** call [`Graph::seal`]. Idempotent. Version is unchanged.
+    pub fn seal_world(&mut self, island: IslandId) -> Result<AdmittedWorld, MetisError> {
+        let entry = self.islands.get_mut(&island).ok_or(MetisError::IslandNotFound)?;
+        if !entry.accepted {
+            return Err(MetisError::InvalidHandle);
+        }
+        entry.observation = ObservationBoundary::Sealed;
+        self.admitted_world_of(island).ok_or(MetisError::InvalidHandle)
+    }
+
+    pub fn is_sealed(&self, island: IslandId) -> Result<bool, MetisError> {
+        Ok(self.get(island)?.is_sealed())
+    }
+
+    fn require_open_target(&self, world: WorldId) -> Result<(), MetisError> {
+        self.require_known_world(world)?;
+        if self.get(world.island)?.is_sealed() {
+            return Err(MetisError::ConnectionInvalid);
+        }
+        Ok(())
+    }
+
     fn require_known_world(&self, world: WorldId) -> Result<(), MetisError> {
         let island = self.get(world.island)?;
         if island.version != world.version {
@@ -228,11 +259,11 @@ impl IslandStore {
     /// Promote a registered candidate at `index` into an admitted world morphism.
     ///
     /// Rejects bidirectional skeletons and Galois claims. Worlds must still match
-    /// the store's current island versions.
+    /// the store's current island versions. Target world must not be sealed.
     pub fn admit_registered_connection(&mut self, index: usize) -> Result<usize, MetisError> {
         let candidate = self.connections.get(index).cloned().ok_or(MetisError::InvalidHandle)?;
         self.require_known_world(candidate.source)?;
-        self.require_known_world(candidate.target)?;
+        self.require_open_target(candidate.target)?;
         let admitted = admit_connection(&candidate)?;
         self.admitted_connections.push(admitted);
         Ok(self.admitted_connections.len() - 1)
@@ -246,6 +277,8 @@ impl IslandStore {
     }
 
     /// Transport an admitted relation along an admitted connection index.
+    ///
+    /// Target world must not be sealed (no further admissions into a closed observation).
     pub fn transport_along(
         &self,
         connection_index: usize,
@@ -257,7 +290,7 @@ impl IslandStore {
             .get(connection_index)
             .ok_or(MetisError::InvalidHandle)?;
         self.require_known_world(conn.source())?;
-        self.require_known_world(conn.target())?;
+        self.require_open_target(conn.target())?;
         transport_relation(conn, relation, kind)
     }
 
@@ -427,6 +460,72 @@ mod tests {
         let moved = store.transport_along(cidx, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.world(), rw);
         assert_eq!(moved.endpoints(), (a2, b2));
+    }
+
+    #[test]
+    fn seal_world_blocks_transport_into_target() {
+        use metis_graph::connection::ConnectionClass;
+        let mut store = IslandStore::new();
+        store.open_staging("L").unwrap();
+        let (a, b) = {
+            let st = store.staging_mut().unwrap();
+            (st.graph.intern_label(b"a").unwrap(), st.graph.intern_label(b"b").unwrap())
+        };
+        let left = store.accept_staging("Left").unwrap();
+        store.open_staging("R").unwrap();
+        let (a2, b2) = {
+            let st = store.staging_mut().unwrap();
+            (st.graph.intern_label(b"A").unwrap(), st.graph.intern_label(b"B").unwrap())
+        };
+        let right = store.accept_staging("Right").unwrap();
+        let lw = store.get(left).unwrap().world_id(left);
+        let rw = store.get(right).unwrap().world_id(right);
+        let cidx = store
+            .admit_world_morphism(CandidateConnection {
+                source: lw,
+                target: rw,
+                class: ConnectionClass::WorldMorphism,
+                object_map: HashMap::from([(a, a2), (b, b2)]),
+                relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::Equal)]),
+                lossy: false,
+            })
+            .unwrap();
+        let adm = store.seal_world(right).unwrap();
+        assert_eq!(adm.world().version, 1);
+        assert!(store.is_sealed(right).unwrap());
+        let rel = AdmittedRelation::bootstrap_unchecked(lw, (a, b), 1);
+        assert_eq!(
+            store.transport_along(cidx, rel, EdgeKind::Equal).unwrap_err(),
+            MetisError::ConnectionInvalid
+        );
+        // Sealing source still allows reading it as transport origin once target is open again —
+        // here target stays sealed, so only assert source seal is allowed.
+        store.seal_world(left).unwrap();
+        assert!(store.is_sealed(left).unwrap());
+    }
+
+    #[test]
+    fn seal_world_blocks_new_morphism_into_target() {
+        use metis_graph::connection::ConnectionClass;
+        let mut store = IslandStore::new();
+        let left = store.register_accepted("L").unwrap();
+        let right = store.register_accepted("R").unwrap();
+        store.seal_world(right).unwrap();
+        let lw = store.get(left).unwrap().world_id(left);
+        let rw = store.get(right).unwrap().world_id(right);
+        assert_eq!(
+            store
+                .admit_world_morphism(CandidateConnection {
+                    source: lw,
+                    target: rw,
+                    class: ConnectionClass::WorldMorphism,
+                    object_map: HashMap::new(),
+                    relation_map: HashMap::new(),
+                    lossy: false,
+                })
+                .unwrap_err(),
+            MetisError::ConnectionInvalid
+        );
     }
 
     #[test]
