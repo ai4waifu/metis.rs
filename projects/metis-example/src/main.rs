@@ -18,10 +18,12 @@ fn main() {
     let low = compile_declarations(group).expect("lower group");
     let gid = low.store.lookup("GroupTheory").expect("GroupTheory");
     println!(
-        "lowered GroupTheory nodes={} relations={} axioms={}",
+        "lowered GroupTheory nodes={} relations={} axioms={} actions={} rewrites={}",
         low.nodes.iter().filter(|((id, _), _)| *id == gid).count(),
         low.relations.iter().filter(|((id, _), _)| *id == gid).count(),
-        low.axioms.iter().filter(|(id, _)| *id == gid).count()
+        low.axioms.iter().filter(|(id, _)| *id == gid).count(),
+        low.actions.len(),
+        low.rewrites.iter().filter(|(id, _)| *id == gid).count()
     );
 
     // Core EQ smoke on a fresh accepted world (not from FOL axioms — declarations only).
