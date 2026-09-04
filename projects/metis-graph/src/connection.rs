@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use metis_types::{EdgeKind, MetisError, NodeId};
+use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 use super::admission::{AdmittedRelation, WorldId};
 
@@ -154,12 +154,35 @@ pub fn transport_relation(
     relation: AdmittedRelation,
     kind: EdgeKind,
 ) -> Result<AdmittedRelation, MetisError> {
+    let (_tgt_kind, adm) = transport_mapped(conn, relation, kind)?;
+    Ok(adm)
+}
+
+/// Transport and assert the mapped judgment edge into `target`.
+///
+/// Uses the **target** kind from `relation_map`. Caller must ensure `target` belongs to
+/// `conn.target` and that the observation boundary is still open.
+pub fn transport_relation_asserting(
+    target: &mut super::Graph,
+    conn: &AdmittedConnection,
+    relation: AdmittedRelation,
+    kind: EdgeKind,
+) -> Result<(AdmittedRelation, EdgeId), MetisError> {
+    let (tgt_kind, adm) = transport_mapped(conn, relation, kind)?;
+    let (left_t, right_t) = adm.endpoints();
+    let edge = target.assert(left_t, tgt_kind, right_t)?;
+    Ok((adm, edge))
+}
+
+fn transport_mapped(
+    conn: &AdmittedConnection,
+    relation: AdmittedRelation,
+    kind: EdgeKind,
+) -> Result<(EdgeKind, AdmittedRelation), MetisError> {
     if relation.world() != conn.source {
         return Err(MetisError::ConnectionInvalid);
     }
-    if !conn.relation_map.contains_key(&kind) {
-        return Err(MetisError::ConnectionInvalid);
-    }
+    let tgt_kind = *conn.relation_map.get(&kind).ok_or(MetisError::ConnectionInvalid)?;
     let (left, right) = relation.endpoints();
     let left_t = *conn.object_map.get(&left).ok_or(MetisError::ConnectionInvalid)?;
     let right_t = *conn.object_map.get(&right).ok_or(MetisError::ConnectionInvalid)?;
@@ -168,7 +191,8 @@ pub fn transport_relation(
         .wrapping_mul(0x9E37_79B9_7F4A_7C15)
         .wrapping_add(relation.evidence_tag())
         .wrapping_add(kind_tag(kind));
-    Ok(AdmittedRelation::bootstrap_unchecked(conn.target, (left_t, right_t), tag))
+    let adm = AdmittedRelation::bootstrap_unchecked(conn.target, (left_t, right_t), tag);
+    Ok((tgt_kind, adm))
 }
 
 /// Structural checks for a candidate. Does **not** prove Galois or transport theorems.
@@ -316,5 +340,30 @@ mod tests {
             transport_relation(&conn, rel, EdgeKind::In).unwrap_err(),
             MetisError::ConnectionInvalid
         );
+    }
+
+    #[test]
+    fn transport_asserting_writes_target_judgment() {
+        use crate::Graph;
+        let a = world(1, 1);
+        let b = world(2, 1);
+        let mut tgt = Graph::new();
+        let t0 = tgt.intern_label(b"T0").unwrap();
+        let t1 = tgt.intern_label(b"T1").unwrap();
+        let morph = CandidateConnection {
+            source: a,
+            target: b,
+            class: ConnectionClass::WorldMorphism,
+            object_map: HashMap::from([(NodeId(0), t0), (NodeId(1), t1)]),
+            relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::Equal)]),
+            lossy: false,
+        };
+        let conn = admit_connection(&morph).unwrap();
+        let rel = AdmittedRelation::bootstrap_unchecked(a, (NodeId(0), NodeId(1)), 3);
+        let (moved, edge) = transport_relation_asserting(&mut tgt, &conn, rel, EdgeKind::Equal).unwrap();
+        assert_eq!(moved.endpoints(), (t0, t1));
+        let (from, kind, to) = tgt.edge(edge).unwrap();
+        assert_eq!((from, kind, to), (t0, EdgeKind::Equal, t1));
+        assert!(tgt.is_judgment(edge).unwrap());
     }
 }
