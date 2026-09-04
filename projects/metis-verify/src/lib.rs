@@ -1,8 +1,15 @@
-//! Path search and proof verification for Metis islands.
+//! Path search and proof verification for Metis islands (object-logic layer).
 //!
 //! - **EQ**: reflexivity, symmetry, transitivity of `Equal` judgment edges.
 //! - **ZFC-lite**: finite sets — see [`zfc`].
+//!
+//! Core-aligned queries use [`query_equal`] / [`query_member`] and return
+//! [`QueryStatus`]. Absence of a path is [`QueryStatus::Unknown`], never automatic negation.
+//!
+//! [`Goal::NotEqual`] / [`Goal::NotMember`] remain as **finite-fragment** helpers that treat
+//! missing witnesses as negation. They must not be used as Metis's general negation semantics.
 
+use metis_graph::admission::QueryStatus;
 use metis_graph::{Graph, Step};
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
@@ -13,11 +20,11 @@ pub mod zfc;
 pub enum Goal {
     /// Propositional equality under EQ rules (and definitional identity).
     Equal(NodeId, NodeId),
-    /// Weak inequality: distinct handles and no `Equal` path.
+    /// Finite-fragment inequality: distinct handles and no `Equal` path (failure-as-negation).
     NotEqual(NodeId, NodeId),
     /// Membership `x ∈ S` via judgment `In`.
     Member(NodeId, NodeId),
-    /// `x ∉ S` when no justifying `In` exists.
+    /// Finite-fragment non-membership when no justifying `In` exists (failure-as-negation).
     NotMember(NodeId, NodeId),
 }
 
@@ -28,7 +35,7 @@ pub enum Justification {
     EqualSteps(Vec<Step>),
     /// Witness `In` edge for membership.
     MemberIn(EdgeId),
-    /// Negative goals.
+    /// Negative goals (finite-fragment failure-as-negation only).
     Negation,
 }
 
@@ -39,6 +46,29 @@ pub struct Proof {
     pub goal: Goal,
     /// Justification payload.
     pub justification: Justification,
+}
+
+/// Core-aligned equality query: missing path → [`QueryStatus::Unknown`].
+pub fn query_equal(graph: &Graph, a: NodeId, b: NodeId) -> Result<QueryStatus, MetisError> {
+    if a == b {
+        return Ok(QueryStatus::Proven);
+    }
+    Ok(if graph.find_equal_path(a, b)?.is_some() {
+        QueryStatus::Proven
+    }
+    else {
+        QueryStatus::Unknown
+    })
+}
+
+/// Core-aligned membership query: missing `In` → [`QueryStatus::Unknown`].
+pub fn query_member(graph: &Graph, elem: NodeId, set: NodeId) -> Result<QueryStatus, MetisError> {
+    Ok(if find_member_edge(graph, elem, set)?.is_some() {
+        QueryStatus::Proven
+    }
+    else {
+        QueryStatus::Unknown
+    })
 }
 
 /// Search a proof of `goal`.
@@ -150,6 +180,30 @@ mod tests {
         let c = g.intern_label(b"c").unwrap();
         let d = g.intern_label(b"d").unwrap();
         (a, b, c, d)
+    }
+
+    #[test]
+    fn query_equal_missing_is_unknown() {
+        let mut g = Graph::new();
+        let (a, _, _, d) = labels(&mut g);
+        assert_eq!(query_equal(&g, a, d).unwrap(), QueryStatus::Unknown);
+        assert_eq!(prove(&g, Goal::Equal(a, d)).unwrap_err(), MetisError::PathNotFound);
+    }
+
+    #[test]
+    fn query_equal_path_is_proven() {
+        let mut g = Graph::new();
+        let (a, b, _, _) = labels(&mut g);
+        g.assert(a, EdgeKind::Equal, b).unwrap();
+        assert_eq!(query_equal(&g, a, b).unwrap(), QueryStatus::Proven);
+        assert_eq!(query_equal(&g, b, a).unwrap(), QueryStatus::Proven);
+    }
+
+    #[test]
+    fn query_member_missing_is_unknown() {
+        let mut g = Graph::new();
+        let (a, b, _, _) = labels(&mut g);
+        assert_eq!(query_member(&g, a, b).unwrap(), QueryStatus::Unknown);
     }
 
     #[test]
