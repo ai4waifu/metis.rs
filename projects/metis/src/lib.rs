@@ -2,7 +2,11 @@
 
 pub use athena_gc::{GcHeap, HeapBudget};
 pub use metis_compile::parse_source;
-pub use metis_graph::{Graph, Step};
+pub use metis_graph::{
+    Graph, Step,
+    admission::{AdmittedRelation, CandidateRelation, ConflictReport, QueryStatus, WorldId, unknown_if_missing},
+};
+
 pub use metis_island::{Island, IslandStore};
 pub use metis_jit::{Artifact, ArtifactKind, CompileUnitId, compile_reach};
 pub use metis_types::{EdgeId, EdgeKind, IslandId, MetisError, NodeId};
