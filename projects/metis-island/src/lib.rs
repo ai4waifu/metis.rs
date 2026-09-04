@@ -158,6 +158,32 @@ impl IslandStore {
     pub fn connections(&self) -> &[CandidateConnection] {
         &self.connections
     }
+
+    /// Admit an EQ derivation only if `diagram.world` matches the island's current version.
+    pub fn admit_equal(
+        &self,
+        island: IslandId,
+        diagram: &metis_graph::derivation::DerivationDiagram,
+    ) -> Result<metis_graph::admission::AdmittedRelation, MetisError> {
+        let entry = self.get(island)?;
+        let current = entry.world_id(island);
+        if diagram.world != current {
+            return Err(MetisError::ProofInvalid);
+        }
+        metis_graph::derivation::replay_equal_derivation(&entry.graph, diagram)
+    }
+
+    /// Search-and-admit EQ under the island's current [`WorldId`].
+    pub fn search_admit_equal(
+        &self,
+        island: IslandId,
+        left: metis_types::NodeId,
+        right: metis_types::NodeId,
+    ) -> Result<(metis_graph::admission::QueryStatus, Option<metis_graph::admission::AdmittedRelation>), MetisError> {
+        let entry = self.get(island)?;
+        let world = entry.world_id(island);
+        metis_graph::derivation::search_and_admit_equal(&entry.graph, world, left, right)
+    }
 }
 
 #[cfg(test)]
@@ -228,5 +254,30 @@ mod tests {
         assert_eq!(store.connections()[i].class, ConnectionClass::BidirectionalSkeleton);
         assert_eq!(store.connections()[j].source.island, b);
         assert!(refuse_galois_without_proof(&store.connections()[i]).is_err());
+    }
+
+    #[test]
+    fn admit_equal_rejects_stale_world_version() {
+        use metis_graph::derivation::DerivationDiagram;
+        let mut store = IslandStore::new();
+        let sid = store.open_staging("draft").unwrap();
+        let (a, b) = {
+            let st = store.staging_mut().unwrap();
+            let a = st.graph.intern_label(b"a").unwrap();
+            let b = st.graph.intern_label(b"b").unwrap();
+            st.graph.assert(a, EdgeKind::Equal, b).unwrap();
+            (a, b)
+        };
+        let id = store.accept_staging("G").unwrap();
+        assert_eq!(id, sid);
+        let stale = DerivationDiagram {
+            world: WorldId { island: id, version: 0 },
+            conclusion: (a, b),
+            steps: store.get(id).unwrap().graph.find_equal_path(a, b).unwrap().unwrap(),
+        };
+        assert_eq!(store.admit_equal(id, &stale).unwrap_err(), MetisError::ProofInvalid);
+        let (st, adm) = store.search_admit_equal(id, a, b).unwrap();
+        assert_eq!(st, metis_graph::admission::QueryStatus::Proven);
+        assert!(adm.is_some());
     }
 }
