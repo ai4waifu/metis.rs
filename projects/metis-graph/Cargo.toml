@@ -4,8 +4,9 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Metis arena relation graph with hash-consing on athena-gc"
+description = "Metis relation semantics on athena-graph (hash-cons, judgment edges)"
 
 [dependencies]
-metis-types = { workspace = true }
 athena-gc = { workspace = true }
+athena-graph = { workspace = true }
+metis-types = { workspace = true }

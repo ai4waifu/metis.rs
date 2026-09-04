@@ -1,6 +1,11 @@
-//! Stable handles and diagnostics for the Metis relation graph.
+//! Metis domain handles and diagnostics.
+//!
+//! Node / edge wire ids are [`athena_graph`]'s ordinary-graph handles.
+//! Island ids and relation kinds stay Metis-specific.
 
 use core::{fmt, num::NonZeroU32};
+
+pub use athena_graph::{EdgeId, NodeId};
 
 /// Island namespace id (stable within a loaded graph store).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -20,48 +25,6 @@ impl IslandId {
 impl fmt::Debug for IslandId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "IslandId({})", self.get())
-    }
-}
-
-/// Node handle. Identity is defined by outgoing edges (extensional).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct NodeId(NonZeroU32);
-
-impl NodeId {
-    pub const fn from_raw(raw: NonZeroU32) -> Self {
-        Self(raw)
-    }
-
-    pub const fn get(self) -> u32 {
-        self.0.get()
-    }
-}
-
-impl fmt::Debug for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "NodeId({})", self.get())
-    }
-}
-
-/// Edge (morphism) handle.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct EdgeId(NonZeroU32);
-
-impl EdgeId {
-    pub const fn from_raw(raw: NonZeroU32) -> Self {
-        Self(raw)
-    }
-
-    pub const fn get(self) -> u32 {
-        self.0.get()
-    }
-}
-
-impl fmt::Debug for EdgeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "EdgeId({})", self.get())
     }
 }
 
@@ -96,4 +59,6 @@ pub enum MetisError {
     Capacity,
     #[error("invalid handle")]
     InvalidHandle,
+    #[error("graph base rejected mutation")]
+    GraphRejected,
 }

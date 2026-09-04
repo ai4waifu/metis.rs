@@ -4,9 +4,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Metis handle types and diagnostics"
+description = "Metis handles and diagnostics (node/edge ids from athena-graph)"
 
 [dependencies]
+athena-graph = { workspace = true }
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
