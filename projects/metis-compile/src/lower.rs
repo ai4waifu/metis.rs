@@ -48,6 +48,7 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
         let mut local_relations: HashMap<String, EdgeKind> = HashMap::new();
         let mut local_axioms: Vec<String> = Vec::new();
         let mut local_theorems: Vec<String> = Vec::new();
+        let mut uses: Vec<String> = Vec::new();
 
         for item in &island.items {
             match item {
@@ -72,7 +73,15 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
                 Item::Connection(c) => {
                     pending_connections.push((c.left.clone(), c.right.clone()));
                 }
-                Item::Use(_) | Item::Rewrites(_) => {}
+                Item::Use(name) => uses.push(name.clone()),
+                Item::Rewrites(_) => {}
+            }
+        }
+
+        // `use` must name an already-accepted island (declaration order matters).
+        for name in &uses {
+            if out.store.lookup(name).is_none() {
+                return Err(MetisError::IslandNotFound);
             }
         }
 
@@ -136,5 +145,31 @@ connection ZFC <-> HoTT { }
         assert_eq!(low.store.connections().len(), 2);
         assert!(low.store.admitted_connections().is_empty());
         assert_eq!(low.store.connections()[0].class, ConnectionClass::BidirectionalSkeleton);
+    }
+
+    #[test]
+    fn use_requires_prior_accepted_island() {
+        let ok = parse_module(
+            r#"
+island Base { node X }
+island Ext {
+    use Base
+    node Y
+}
+"#,
+        )
+        .expect("parse");
+        assert!(lower_module(&ok).is_ok());
+
+        let bad = parse_module(
+            r#"
+island Ext {
+    use Missing
+    node Y
+}
+"#,
+        )
+        .expect("parse");
+        assert!(matches!(lower_module(&bad), Err(MetisError::IslandNotFound)));
     }
 }
