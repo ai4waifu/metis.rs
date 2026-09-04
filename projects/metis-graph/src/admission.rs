@@ -62,6 +62,37 @@ impl AdmittedRelation {
     }
 }
 
+/// Opaque admitted world (accepted island version). Only Core mint paths may create it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct AdmittedWorld {
+    world: WorldId,
+    evidence_tag: u64,
+}
+
+impl AdmittedWorld {
+    #[doc(hidden)]
+    pub fn bootstrap_unchecked(world: WorldId, evidence_tag: u64) -> Self {
+        Self { world, evidence_tag }
+    }
+
+    /// Mint after a world is accepted / sealed into the inner table.
+    pub fn admit(world: WorldId) -> Self {
+        let tag = world
+            .version
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(u64::from(world.island.get()));
+        Self { world, evidence_tag: tag }
+    }
+
+    pub const fn world(self) -> WorldId {
+        self.world
+    }
+
+    pub const fn evidence_tag(self) -> u64 {
+        self.evidence_tag
+    }
+}
+
 /// Explicit conflict report. Does not explode into arbitrary relations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConflictReport {
@@ -97,5 +128,14 @@ mod tests {
         let a = AdmittedRelation::bootstrap_unchecked(w, (NodeId(0), NodeId(1)), 7);
         assert_eq!(a.world(), w);
         assert_eq!(a.evidence_tag(), 7);
+    }
+
+    #[test]
+    fn admitted_world_is_deterministic_for_same_id() {
+        let w = WorldId { island: IslandId::from_raw(NonZeroU32::new(2).unwrap()), version: 3 };
+        let a = AdmittedWorld::admit(w);
+        let b = AdmittedWorld::admit(w);
+        assert_eq!(a, b);
+        assert_eq!(a.world(), w);
     }
 }
