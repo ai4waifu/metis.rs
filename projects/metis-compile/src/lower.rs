@@ -22,6 +22,8 @@ pub struct LoweringResult {
     pub axioms: Vec<(IslandId, String)>,
     /// Theorem names recorded per island (formulas not proved).
     pub theorems: Vec<(IslandId, String)>,
+    /// Top-level `action` names (bodies not executed).
+    pub actions: Vec<String>,
 }
 
 /// Lower a typed module AST into an [`IslandStore`].
@@ -106,6 +108,10 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
         out.store.declare_bidirectional(lid, rid)?;
     }
 
+    for action in &module.actions {
+        out.actions.push(action.name.clone());
+    }
+
     Ok(out)
 }
 
@@ -145,6 +151,20 @@ connection ZFC <-> HoTT { }
         assert_eq!(low.store.connections().len(), 2);
         assert!(low.store.admitted_connections().is_empty());
         assert_eq!(low.store.connections()[0].class, ConnectionClass::BidirectionalSkeleton);
+    }
+
+    #[test]
+    fn records_action_names_without_running_body() {
+        let src = r#"
+island Nat { node Nat }
+action SearchPath {
+    let start = Nat
+}
+"#;
+        let module = parse_module(src).expect("parse");
+        let low = lower_module(&module).expect("lower");
+        assert_eq!(low.actions, vec!["SearchPath".to_string()]);
+        assert!(low.store.lookup("Nat").is_some());
     }
 
     #[test]
