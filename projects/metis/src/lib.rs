@@ -5,6 +5,7 @@ pub use metis_compile::parse_source;
 pub use metis_graph::{
     Graph, Step,
     admission::{AdmittedRelation, CandidateRelation, ConflictReport, QueryStatus, WorldId, unknown_if_missing},
+    conflict::{Incompatibility, detect_judgment_conflict, query_under_incompatibility},
     connection::{
         AdmittedConnection, CandidateConnection, ConnectionClass, bidirectional_skeleton, refuse_galois_without_proof,
         validate_candidate,

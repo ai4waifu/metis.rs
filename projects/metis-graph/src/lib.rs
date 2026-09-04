@@ -3,7 +3,7 @@
 //! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] (not CAS M-Graph).
 //! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
 //! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
-//! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`transform`].
+//! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`transform`], [`conflict`].
 
 use std::{
     cell::RefCell,
@@ -19,6 +19,7 @@ use athena_graph::{
 use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 
 pub mod admission;
+pub mod conflict;
 pub mod connection;
 pub mod derivation;
 pub mod transform;
