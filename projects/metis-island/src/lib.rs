@@ -31,6 +31,8 @@ pub struct Island {
     pub rules: RuleTable,
     /// Whether further admissions may enter this accepted world version.
     pub observation: ObservationBoundary,
+    /// Optional parent / source worlds from `use` (not automatic import of judgments).
+    pub parents: Vec<WorldId>,
 }
 
 impl Island {
@@ -42,6 +44,7 @@ impl Island {
             version,
             rules: RuleTable::default(),
             observation: ObservationBoundary::Open,
+            parents: Vec::new(),
         }
     }
 
@@ -129,6 +132,18 @@ impl IslandStore {
 
     pub fn staging_mut(&mut self) -> Result<&mut Island, MetisError> {
         self.staging.as_mut().map(|(_, island)| island).ok_or(MetisError::IslandNotFound)
+    }
+
+    /// Record a parent / source world on the current staging island (`use` elaborator).
+    ///
+    /// Does **not** import judgments. Cross-world facts still require connections.
+    pub fn add_staging_parent(&mut self, parent: WorldId) -> Result<(), MetisError> {
+        self.require_known_world(parent)?;
+        let st = self.staging_mut()?;
+        if !st.parents.iter().any(|p| *p == parent) {
+            st.parents.push(parent);
+        }
+        Ok(())
     }
 
     /// Declare a generating relation kind on the current staging island.
@@ -568,6 +583,19 @@ mod tests {
         let cand = compose_equal_relations(ab, bc).unwrap();
         let ac = store.admit_equal_candidate(id, cand).unwrap();
         assert_eq!(ac.endpoints(), (a, c));
+    }
+
+    #[test]
+    fn staging_parent_does_not_import_judgments() {
+        let mut store = IslandStore::new();
+        let base = store.register_accepted("Base").unwrap();
+        let bw = store.get(base).unwrap().world_id(base);
+        store.open_world("ext").unwrap();
+        store.add_staging_parent(bw).unwrap();
+        let ext = store.accept_staging("Ext").unwrap();
+        assert_eq!(store.get(ext).unwrap().parents, vec![bw]);
+        // Parent link is metadata only — no automatic EQ path across islands.
+        assert!(store.get(ext).unwrap().graph.node_count() == 0);
     }
 
     #[test]
