@@ -24,6 +24,8 @@ pub struct LoweringResult {
     pub theorems: Vec<(IslandId, String)>,
     /// Top-level `action` names (bodies not executed).
     pub actions: Vec<String>,
+    /// `rewrites` rule-set names (rules not applied).
+    pub rewrites: Vec<(IslandId, String)>,
 }
 
 /// Lower a typed module AST into an [`IslandStore`].
@@ -50,6 +52,7 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
         let mut local_relations: HashMap<String, EdgeKind> = HashMap::new();
         let mut local_axioms: Vec<String> = Vec::new();
         let mut local_theorems: Vec<String> = Vec::new();
+        let mut local_rewrites: Vec<String> = Vec::new();
         let mut uses: Vec<String> = Vec::new();
 
         for item in &island.items {
@@ -76,7 +79,7 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
                     pending_connections.push((c.left.clone(), c.right.clone()));
                 }
                 Item::Use(name) => uses.push(name.clone()),
-                Item::Rewrites(_) => {}
+                Item::Rewrites(rw) => local_rewrites.push(rw.name.clone()),
             }
         }
 
@@ -99,6 +102,9 @@ pub fn lower_module(module: &Module) -> Result<LoweringResult, MetisError> {
         }
         for name in local_theorems {
             out.theorems.push((id, name));
+        }
+        for name in local_rewrites {
+            out.rewrites.push((id, name));
         }
     }
 
@@ -165,6 +171,22 @@ action SearchPath {
         let low = lower_module(&module).expect("lower");
         assert_eq!(low.actions, vec!["SearchPath".to_string()]);
         assert!(low.store.lookup("Nat").is_some());
+    }
+
+    #[test]
+    fn records_rewrites_names_without_applying() {
+        let src = r#"
+island Nat {
+    node Nat
+    rewrites AddComm {
+        forall (a: Nat, b: Nat) -> a + b == b + a
+    }
+}
+"#;
+        let module = parse_module(src).expect("parse");
+        let low = lower_module(&module).expect("lower");
+        let id = low.store.lookup("Nat").unwrap();
+        assert!(low.rewrites.iter().any(|(i, n)| *i == id && n == "AddComm"));
     }
 
     #[test]
