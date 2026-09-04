@@ -3,7 +3,7 @@
 //! - Bottom layer: ordinary discrete adjacency via [`GraphBuilder`] (not CAS M-Graph).
 //! - Metis layer: hash-cons, label atoms, structural vs judgment edges, EQ paths.
 //! - Staging keeps an unfinished builder. Seal with [`Graph::seal`] / [`Graph::seal_on_heap`].
-//! - Core contract stubs: [`admission`], [`connection`], [`derivation`].
+//! - Core contract stubs: [`admission`], [`connection`], [`derivation`], [`transform`].
 
 use std::{
     cell::RefCell,
@@ -21,6 +21,7 @@ use metis_types::{EdgeId, EdgeKind, MetisError, NodeId};
 pub mod admission;
 pub mod connection;
 pub mod derivation;
+pub mod transform;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum EdgeKindKey {

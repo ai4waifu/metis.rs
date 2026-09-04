@@ -10,6 +10,7 @@ pub use metis_graph::{
         validate_candidate,
     },
     derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
+    transform::{PremisePattern, TransformationInstance, TransformationSchema, replay_two_premise},
 };
 
 pub use metis_island::{Island, IslandStore};
