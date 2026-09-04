@@ -12,8 +12,8 @@ use std::{
 use metis_graph::admission::{AdmittedRelation, AdmittedWorld, ObservationBoundary, WorldId};
 use metis_graph::conflict::{Incompatibility, detect_judgment_conflict};
 use metis_graph::connection::{
-    AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton, transport_relation,
-    validate_candidate,
+    AdmittedConnection, CandidateConnection, admit_connection, bidirectional_skeleton,
+    transport_relation, transport_relation_asserting, validate_candidate,
 };
 use metis_graph::rules::RuleTable;
 use metis_graph::transform::TransformationSchema;
@@ -316,6 +316,32 @@ impl IslandStore {
         transport_relation(conn, relation, kind)
     }
 
+    /// Transport and write the mapped judgment into the target island graph.
+    ///
+    /// Core-only mutation of an accepted (but unsealed) world. Ordinary [`Self::get_mut`]
+    /// still rejects accepted islands.
+    pub fn transport_and_assert(
+        &mut self,
+        connection_index: usize,
+        relation: AdmittedRelation,
+        kind: EdgeKind,
+    ) -> Result<(AdmittedRelation, EdgeId), MetisError> {
+        let conn = self
+            .admitted_connections
+            .get(connection_index)
+            .cloned()
+            .ok_or(MetisError::InvalidHandle)?;
+        self.require_known_world(conn.source())?;
+        self.require_open_target(conn.target())?;
+        let target_id = conn.target().island;
+        let graph = &mut self
+            .islands
+            .get_mut(&target_id)
+            .ok_or(MetisError::IslandNotFound)?
+            .graph;
+        transport_relation_asserting(graph, &conn, relation, kind)
+    }
+
     /// Admit an EQ derivation only if `diagram.world` matches the island's current version.
     pub fn admit_equal(
         &self,
@@ -493,6 +519,45 @@ mod tests {
         let moved = store.transport_along(cidx, rel, EdgeKind::Equal).unwrap();
         assert_eq!(moved.world(), rw);
         assert_eq!(moved.endpoints(), (a2, b2));
+    }
+
+    #[test]
+    fn transport_and_assert_writes_accepted_target() {
+        use metis_graph::connection::ConnectionClass;
+        let mut store = IslandStore::new();
+        store.open_staging("L").unwrap();
+        let (a, b) = {
+            let st = store.staging_mut().unwrap();
+            (st.graph.intern_label(b"a").unwrap(), st.graph.intern_label(b"b").unwrap())
+        };
+        let left = store.accept_staging("Left").unwrap();
+        store.open_staging("R").unwrap();
+        let (a2, b2) = {
+            let st = store.staging_mut().unwrap();
+            (st.graph.intern_label(b"A").unwrap(), st.graph.intern_label(b"B").unwrap())
+        };
+        let right = store.accept_staging("Right").unwrap();
+        let lw = store.get(left).unwrap().world_id(left);
+        let rw = store.get(right).unwrap().world_id(right);
+        let cidx = store
+            .admit_world_morphism(CandidateConnection {
+                source: lw,
+                target: rw,
+                class: ConnectionClass::WorldMorphism,
+                object_map: HashMap::from([(a, a2), (b, b2)]),
+                relation_map: HashMap::from([(EdgeKind::Equal, EdgeKind::Equal)]),
+                lossy: false,
+            })
+            .unwrap();
+        assert!(store.get_mut(right).is_err());
+        let rel = AdmittedRelation::bootstrap_unchecked(lw, (a, b), 9);
+        let (moved, edge) = store.transport_and_assert(cidx, rel, EdgeKind::Equal).unwrap();
+        assert_eq!(moved.endpoints(), (a2, b2));
+        let (from, kind, to) = store.get(right).unwrap().graph.edge(edge).unwrap();
+        assert_eq!((from, kind, to), (a2, EdgeKind::Equal, b2));
+        let (st, adm) = store.search_admit_equal(right, a2, b2).unwrap();
+        assert_eq!(st, metis_graph::admission::QueryStatus::Proven);
+        assert!(adm.is_some());
     }
 
     #[test]
