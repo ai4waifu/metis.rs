@@ -14,6 +14,7 @@ pub use metis_graph::{
         refuse_galois_without_proof, transport_relation, validate_candidate,
     },
     derivation::{DerivationDiagram, replay_equal_derivation, search_and_admit_equal},
+    relation::{admit_equal_relation, compose_equal_relations, form_relation},
     rules::{RelationSignature, RuleTable},
     transform::{PremisePattern, TransformationInstance, TransformationSchema, replay_two_premise},
 };
