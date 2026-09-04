@@ -4,12 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Lower oak-metis AST and run theorem proof scripts"
+description = "Parse and lower .metis sources (oak-metis AST)"
 
 [dependencies]
-metis-types = { workspace = true }
-metis-graph = { workspace = true }
-metis-verify = { workspace = true }
 oak-metis = { workspace = true }
-
-[dev-dependencies]

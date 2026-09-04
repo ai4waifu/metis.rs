@@ -1,17 +1,17 @@
-//! Smoke: run ZFC finite-fragment theorems from island language source.
+//! Smoke: parse Living-grammar `.metis` fixtures.
 
-use metis::{run_source, VERSION};
+use metis::{parse_source, VERSION};
 
 fn main() {
     println!("metis {VERSION}");
-    let src = include_str!("../../metis-compile/fixtures/zfc_basic.metis");
-    let reports = run_source(src).expect("zfc_basic.metis");
-    for r in &reports {
-        println!(
-            "proved {}::{} checks={}",
-            r.island,
-            r.theorem,
-            r.proofs.len()
-        );
-    }
+    let group = include_str!("../../metis-compile/fixtures/group_theory_min.metis");
+    let m = parse_source(group).expect("group_theory_min.metis");
+    println!(
+        "parsed island {} items={}",
+        m.islands[0].name,
+        m.islands[0].items.len()
+    );
+    let iff = include_str!("../../metis-compile/fixtures/iff_samples.metis");
+    let m2 = parse_source(iff).expect("iff_samples.metis");
+    println!("parsed iff module islands={}", m2.islands.len());
 }

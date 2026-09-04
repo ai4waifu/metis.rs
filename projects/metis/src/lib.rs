@@ -1,10 +1,7 @@
 //! Stable Metis facade.
-//!
-//! Theorems and proofs are authored in island language (`oak-metis` + `metis-compile`).
-//! Object heap protocol is `athena-gc` (no parallel `metis-gc`).
 
 pub use athena_gc::{GcHeap, HeapBudget};
-pub use metis_compile::{run_module, run_source, TheoremReport};
+pub use metis_compile::parse_source;
 pub use metis_graph::{Graph, Step};
 pub use metis_island::{Island, IslandStore};
 pub use metis_jit::{compile_reach, Artifact, ArtifactKind, CompileUnitId};
