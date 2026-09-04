@@ -19,7 +19,7 @@ pub fn atom(graph: &mut Graph, name: impl AsRef<[u8]>) -> Result<NodeId, MetisEr
 /// Finite set `{m0, m1, …}` with extensional hash-cons and pairing-intro `In` judgments.
 pub fn finite_set(graph: &mut Graph, members: &[NodeId]) -> Result<NodeId, MetisError> {
     let mut ms = members.to_vec();
-    ms.sort_by_key(|n| n.get());
+    ms.sort_by_key(|n| n.0);
     ms.dedup();
     let outs: Vec<(EdgeKind, NodeId)> = ms.iter().map(|m| (HAS_MEMBER, *m)).collect();
     let set = graph.intern(&outs)?;
